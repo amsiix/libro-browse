@@ -4,6 +4,16 @@ let bookData = null;
 let currentPage = 0;
 let zoomLevel = 1.0;
 
+// Reading position persistence
+function saveReadingPosition(bookId, pageNum) {
+    localStorage.setItem(`libro-browse-page-${bookId}`, pageNum);
+}
+
+function getReadingPosition(bookId) {
+    const saved = localStorage.getItem(`libro-browse-page-${bookId}`);
+    return saved !== null ? parseInt(saved, 10) : null;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const bookId = document.getElementById('reader').dataset.bookId;
     loadBook(bookId);
@@ -41,8 +51,10 @@ async function loadBook(bookId) {
         // Restore the page image element
         pageDisplay.innerHTML = '<img id="pageImage" class="page-image" alt="Book page">';
 
-        // Load first page
-        displayPage(0);
+        // Load saved page or first page
+        const savedPage = getReadingPosition(bookId);
+        const startPage = (savedPage !== null && savedPage >= 0 && savedPage < bookData.pageCount) ? savedPage : 0;
+        displayPage(startPage);
     } catch (error) {
         pageDisplay.innerHTML = `
             <div class="error">
@@ -58,6 +70,7 @@ function displayPage(pageNum) {
     }
 
     currentPage = pageNum;
+    saveReadingPosition(bookData.id, pageNum);
 
     const pageUrl = `/api/books/${bookData.id}/page/${pageNum}`;
     const pageImg = document.getElementById('pageImage');
