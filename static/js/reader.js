@@ -16,8 +16,10 @@ let lastScrollPageChange = 0;
 const scrollDebounceMs = 250;
 
 // Base image dimensions (fitted size at 100% zoom)
+// These are captured once and reused for consistent zoom across pages
 let baseImageWidth = 0;
 let baseImageHeight = 0;
+let baseDimensionsCaptured = false;
 
 // Preload cache and settings
 const preloadCache = new Map();
@@ -147,7 +149,8 @@ async function loadBook(bookId) {
     }
 }
 
-function displayPage(pageNum) {
+// direction: 'forward' (show top), 'backward' (show bottom), or null (default to top)
+function displayPage(pageNum, direction = null) {
     if (!bookData || pageNum < 0 || pageNum >= bookData.pageCount) {
         return;
     }
@@ -167,55 +170,53 @@ function displayPage(pageNum) {
 
     // Check if page is already preloaded
     const cached = preloadCache.get(pageNum);
-    if (cached && cached.complete) {
-        // Use cached image immediately
-        pageImg.src = cached.src;
-        baseImageWidth = pageImg.offsetWidth || cached.naturalWidth;
-        baseImageHeight = pageImg.offsetHeight || cached.naturalHeight;
-        requestAnimationFrame(() => {
-            baseImageWidth = pageImg.offsetWidth;
-            baseImageHeight = pageImg.offsetHeight;
-            applyZoom();
-        });
-    } else {
-        // Show loading spinner
+    const isCached = cached && cached.complete;
+
+    // Show loading spinner only for non-cached images
+    if (!isCached) {
         spinner.style.display = 'block';
         pageImg.classList.add('loading');
-
-        pageImg.onload = () => {
-            // Hide loading spinner
-            spinner.style.display = 'none';
-            pageImg.classList.remove('loading');
-            // Capture the fitted dimensions as base size
-            baseImageWidth = pageImg.offsetWidth;
-            baseImageHeight = pageImg.offsetHeight;
-            // Apply current zoom level
-            applyZoom();
-            // Preload adjacent pages
-            preloadPages(pageNum);
-        };
-
-        pageImg.onerror = () => {
-            spinner.style.display = 'none';
-            pageImg.classList.remove('loading');
-        };
-
-        pageImg.src = pageUrl;
     }
 
-    // Reset scroll position when changing pages
-    pageDisplay.scrollLeft = 0;
-    pageDisplay.scrollTop = 0;
+    pageImg.onload = () => {
+        // Hide loading spinner
+        spinner.style.display = 'none';
+        pageImg.classList.remove('loading');
+        // Capture the fitted dimensions as base size (only once, for consistency)
+        if (!baseDimensionsCaptured) {
+            baseImageWidth = pageImg.offsetWidth;
+            baseImageHeight = pageImg.offsetHeight;
+            baseDimensionsCaptured = true;
+        }
+        // Apply current zoom level
+        applyZoom();
+        // Set scroll position based on navigation direction (after zoom applied)
+        requestAnimationFrame(() => {
+            pageDisplay.scrollLeft = 0;
+            if (direction === 'backward' && zoomLevel > 1.0) {
+                // Going backward: show bottom of page
+                pageDisplay.scrollTop = pageDisplay.scrollHeight - pageDisplay.clientHeight;
+            } else {
+                // Going forward or default: show top of page
+                pageDisplay.scrollTop = 0;
+            }
+        });
+        // Preload adjacent pages
+        preloadPages(pageNum);
+    };
+
+    pageImg.onerror = () => {
+        spinner.style.display = 'none';
+        pageImg.classList.remove('loading');
+    };
+
+    // Set src - onload will fire even for cached images
+    pageImg.src = isCached ? cached.src : pageUrl;
 
     // Update controls
     document.getElementById('pageInput').value = pageNum + 1;
     document.getElementById('prevBtn').disabled = pageNum === 0;
     document.getElementById('nextBtn').disabled = pageNum === bookData.pageCount - 1;
-
-    // Preload adjacent pages (also when using cached)
-    if (cached && cached.complete) {
-        preloadPages(pageNum);
-    }
 }
 
 function preloadPages(currentPageNum) {
@@ -283,13 +284,13 @@ function updateCacheStatus() {
 
 function nextPage() {
     if (currentPage < bookData.pageCount - 1) {
-        displayPage(currentPage + 1);
+        displayPage(currentPage + 1, 'forward');
     }
 }
 
 function prevPage() {
     if (currentPage > 0) {
-        displayPage(currentPage - 1);
+        displayPage(currentPage - 1, 'backward');
     }
 }
 
@@ -317,7 +318,12 @@ function zoomOut() {
 
 function resetZoom() {
     zoomLevel = 1.0;
-    updateZoom();
+    // Update zoom level display
+    document.getElementById('zoomLevel').textContent = '100%';
+    // Reset base dimensions flag so they get recaptured for current page
+    baseDimensionsCaptured = false;
+    // Re-display current page to capture fresh base dimensions
+    displayPage(currentPage);
 }
 
 function applyZoom() {
