@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reader - Libro Browse</title>
+    <link rel="stylesheet" href="/static/css/reader.css">
+</head>
+<body>
+    <div class="top-bar">
+        <div id="bookTitle" class="book-title">Loading...</div>
+        <a href="/" class="back-btn">← Back to Library</a>
+    </div>
+
+    <div id="reader" class="reader-container" data-book-id="{{ book_id }}">
+        <div id="pageDisplay" class="page-display">
+            <img id="pageImage" class="page-image" alt="Book page">
+        </div>
+
+        <div class="controls">
+            <button id="prevBtn" class="nav-btn">← Previous</button>
+
+            <div class="page-info">
+                <span>Page</span>
+                <input type="number" id="pageInput" class="page-input" min="1" value="1">
+                <span>of <span id="totalPages">-</span></span>
+            </div>
+
+            <button id="nextBtn" class="nav-btn">Next →</button>
+
+            <div class="zoom-controls">
+                <button id="zoomOutBtn" class="zoom-btn">-</button>
+                <span id="zoomLevel" class="zoom-level">100%</span>
+                <button id="zoomInBtn" class="zoom-btn">+</button>
+                <button id="resetZoomBtn" class="zoom-btn">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="shortcuts-help">
+        <h4>Keyboard Shortcuts</h4>
+        <ul>
+            <li><kbd>←</kbd> <kbd>→</kbd> Previous/Next page</li>
+            <li><kbd>Space</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd> Navigate</li>
+            <li><kbd>Home</kbd> <kbd>End</kbd> First/Last page</li>
+            <li><kbd>+</kbd> <kbd>-</kbd> Zoom in/out</li>
+            <li><kbd>0</kbd> Reset zoom</li>
+        </ul>
+    </div>
+
+    <script src="/static/js/reader.js"></script>
+</body>
+</html>

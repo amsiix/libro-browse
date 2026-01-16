@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Libro Browse - Your Book Library</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>📚 Libro Browse</h1>
+    </header>
+
+    <div class="search-container">
+        <div class="search-box">
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="Search by title, author, or tags..."
+                autocomplete="off"
+            >
+            <button id="searchBtn">Search</button>
+        </div>
+    </div>
+
+    <main>
+        <div id="stats" class="stats"></div>
+        <div id="booksGrid" class="books-grid">
+            <div class="loading">Loading books...</div>
+        </div>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "title": "Sample Book - Getting Started",
+  "author": "Libro Browse",
+  "year": "2024",
+  "description": "This is a sample book to demonstrate how Libro Browse works. Replace this folder with your own scanned books!",
+  "cover": "page-001.jpg",
+  "tags": ["sample", "tutorial", "demo"]
+}
