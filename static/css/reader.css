@@ -54,8 +54,17 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    overflow: hidden;
+    overflow: auto;
     position: relative;
+}
+
+.page-display.zoomed {
+    cursor: grab;
+}
+
+.page-display.zoomed.dragging {
+    cursor: grabbing;
+    user-select: none;
 }
 
 .page-image {

@@ -4,6 +4,13 @@ let bookData = null;
 let currentPage = 0;
 let zoomLevel = 1.0;
 
+// Panning state
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let scrollStartX = 0;
+let scrollStartY = 0;
+
 // Reading position persistence
 function saveReadingPosition(bookId, pageNum) {
     localStorage.setItem(`libro-browse-page-${bookId}`, pageNum);
@@ -28,6 +35,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
+
+    // Drag to pan when zoomed
+    const pageDisplay = document.getElementById('pageDisplay');
+
+    pageDisplay.addEventListener('mousedown', (e) => {
+        if (zoomLevel > 1.0) {
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            scrollStartX = pageDisplay.scrollLeft;
+            scrollStartY = pageDisplay.scrollTop;
+            pageDisplay.classList.add('dragging');
+            e.preventDefault();
+        }
+    });
+
+    pageDisplay.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const deltaX = e.clientX - dragStartX;
+        const deltaY = e.clientY - dragStartY;
+        pageDisplay.scrollLeft = scrollStartX - deltaX;
+        pageDisplay.scrollTop = scrollStartY - deltaY;
+    });
+
+    pageDisplay.addEventListener('mouseup', () => {
+        isDragging = false;
+        pageDisplay.classList.remove('dragging');
+    });
+
+    pageDisplay.addEventListener('mouseleave', () => {
+        isDragging = false;
+        pageDisplay.classList.remove('dragging');
+    });
 });
 
 async function loadBook(bookId) {
@@ -74,9 +114,14 @@ function displayPage(pageNum) {
 
     const pageUrl = `/api/books/${bookData.id}/page/${pageNum}`;
     const pageImg = document.getElementById('pageImage');
+    const pageDisplay = document.getElementById('pageDisplay');
 
     pageImg.src = pageUrl;
     pageImg.style.transform = `scale(${zoomLevel})`;
+
+    // Reset scroll position when changing pages
+    pageDisplay.scrollLeft = 0;
+    pageDisplay.scrollTop = 0;
 
     // Update controls
     document.getElementById('pageInput').value = pageNum + 1;
@@ -125,14 +170,57 @@ function resetZoom() {
 
 function updateZoom() {
     const pageImg = document.getElementById('pageImage');
+    const pageDisplay = document.getElementById('pageDisplay');
+
     pageImg.style.transform = `scale(${zoomLevel})`;
     document.getElementById('zoomLevel').textContent = `${Math.round(zoomLevel * 100)}%`;
+
+    // Add/remove zoomed class for cursor styling
+    if (zoomLevel > 1.0) {
+        pageDisplay.classList.add('zoomed');
+        // Center scroll position after zoom change
+        requestAnimationFrame(() => {
+            const scrollMaxX = pageDisplay.scrollWidth - pageDisplay.clientWidth;
+            const scrollMaxY = pageDisplay.scrollHeight - pageDisplay.clientHeight;
+            pageDisplay.scrollLeft = scrollMaxX / 2;
+            pageDisplay.scrollTop = scrollMaxY / 2;
+        });
+    } else {
+        pageDisplay.classList.remove('zoomed');
+        pageDisplay.scrollLeft = 0;
+        pageDisplay.scrollTop = 0;
+    }
 }
 
 function handleKeyboard(e) {
     // Ignore if typing in input field
     if (e.target.tagName === 'INPUT') {
         return;
+    }
+
+    const pageDisplay = document.getElementById('pageDisplay');
+    const panAmount = 100;
+
+    // When zoomed, arrow keys pan instead of navigating pages
+    if (zoomLevel > 1.0) {
+        switch(e.key) {
+            case 'ArrowLeft':
+                pageDisplay.scrollLeft -= panAmount;
+                e.preventDefault();
+                return;
+            case 'ArrowRight':
+                pageDisplay.scrollLeft += panAmount;
+                e.preventDefault();
+                return;
+            case 'ArrowUp':
+                pageDisplay.scrollTop -= panAmount;
+                e.preventDefault();
+                return;
+            case 'ArrowDown':
+                pageDisplay.scrollTop += panAmount;
+                e.preventDefault();
+                return;
+        }
     }
 
     switch(e.key) {
