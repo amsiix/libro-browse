@@ -38,6 +38,9 @@ async function loadBook(bookId) {
         document.getElementById('bookTitle').textContent = bookData.title;
         document.getElementById('totalPages').textContent = bookData.pageCount;
 
+        // Restore the page image element
+        pageDisplay.innerHTML = '<img id="pageImage" class="page-image" alt="Book page">';
+
         // Load first page
         displayPage(0);
     } catch (error) {
