@@ -60,6 +60,15 @@ body {
 
 .page-display.zoomed {
     cursor: grab;
+    /* Use flex-start + margin:auto for proper scroll behavior when zoomed */
+    justify-content: flex-start;
+    align-items: flex-start;
+}
+
+.page-display.zoomed .page-image {
+    margin: auto;
+    max-width: none;
+    max-height: none;
 }
 
 .page-display.zoomed.dragging {

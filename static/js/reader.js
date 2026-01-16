@@ -11,6 +11,14 @@ let dragStartY = 0;
 let scrollStartX = 0;
 let scrollStartY = 0;
 
+// Scroll navigation debounce
+let lastScrollPageChange = 0;
+const scrollDebounceMs = 250;
+
+// Base image dimensions (fitted size at 100% zoom)
+let baseImageWidth = 0;
+let baseImageHeight = 0;
+
 // Reading position persistence
 function saveReadingPosition(bookId, pageNum) {
     localStorage.setItem(`libro-browse-page-${bookId}`, pageNum);
@@ -68,6 +76,28 @@ document.addEventListener('DOMContentLoaded', () => {
         isDragging = false;
         pageDisplay.classList.remove('dragging');
     });
+
+    // Mouse wheel navigation at normal zoom
+    pageDisplay.addEventListener('wheel', (e) => {
+        // When zoomed, let browser handle scrolling within the page
+        if (zoomLevel > 1.0) {
+            return;
+        }
+
+        // At normal zoom, change pages with debounce
+        e.preventDefault();
+        const now = Date.now();
+        if (now - lastScrollPageChange < scrollDebounceMs) {
+            return;
+        }
+
+        if (e.deltaY > 0) {
+            nextPage();
+        } else if (e.deltaY < 0) {
+            prevPage();
+        }
+        lastScrollPageChange = now;
+    }, { passive: false });
 });
 
 async function loadBook(bookId) {
@@ -116,8 +146,20 @@ function displayPage(pageNum) {
     const pageImg = document.getElementById('pageImage');
     const pageDisplay = document.getElementById('pageDisplay');
 
+    // Reset to base state before loading new image
+    pageImg.style.width = '';
+    pageImg.style.height = '';
+    pageImg.style.transform = '';
+
+    pageImg.onload = () => {
+        // Capture the fitted dimensions as base size
+        baseImageWidth = pageImg.offsetWidth;
+        baseImageHeight = pageImg.offsetHeight;
+        // Apply current zoom level
+        applyZoom();
+    };
+
     pageImg.src = pageUrl;
-    pageImg.style.transform = `scale(${zoomLevel})`;
 
     // Reset scroll position when changing pages
     pageDisplay.scrollLeft = 0;
@@ -168,15 +210,25 @@ function resetZoom() {
     updateZoom();
 }
 
-function updateZoom() {
+function applyZoom() {
     const pageImg = document.getElementById('pageImage');
     const pageDisplay = document.getElementById('pageDisplay');
 
-    pageImg.style.transform = `scale(${zoomLevel})`;
-    document.getElementById('zoomLevel').textContent = `${Math.round(zoomLevel * 100)}%`;
+    if (baseImageWidth === 0 || baseImageHeight === 0) {
+        return; // Image not loaded yet
+    }
 
-    // Add/remove zoomed class for cursor styling
-    if (zoomLevel > 1.0) {
+    if (zoomLevel === 1.0) {
+        // At 100%, use CSS constraints (clear explicit dimensions)
+        pageImg.style.width = '';
+        pageImg.style.height = '';
+        pageDisplay.classList.remove('zoomed');
+        pageDisplay.scrollLeft = 0;
+        pageDisplay.scrollTop = 0;
+    } else {
+        // At other zoom levels, set explicit pixel dimensions
+        pageImg.style.width = (baseImageWidth * zoomLevel) + 'px';
+        pageImg.style.height = (baseImageHeight * zoomLevel) + 'px';
         pageDisplay.classList.add('zoomed');
         // Center scroll position after zoom change
         requestAnimationFrame(() => {
@@ -185,11 +237,12 @@ function updateZoom() {
             pageDisplay.scrollLeft = scrollMaxX / 2;
             pageDisplay.scrollTop = scrollMaxY / 2;
         });
-    } else {
-        pageDisplay.classList.remove('zoomed');
-        pageDisplay.scrollLeft = 0;
-        pageDisplay.scrollTop = 0;
     }
+}
+
+function updateZoom() {
+    document.getElementById('zoomLevel').textContent = `${Math.round(zoomLevel * 100)}%`;
+    applyZoom();
 }
 
 function handleKeyboard(e) {
