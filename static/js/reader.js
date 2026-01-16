@@ -19,6 +19,10 @@ const scrollDebounceMs = 250;
 let baseImageWidth = 0;
 let baseImageHeight = 0;
 
+// Preload cache and settings
+const preloadCache = new Map();
+const PRELOAD_AHEAD = 3; // Number of pages to preload ahead/behind
+
 // Reading position persistence
 function saveReadingPosition(bookId, pageNum) {
     localStorage.setItem(`libro-browse-page-${bookId}`, pageNum);
@@ -118,8 +122,17 @@ async function loadBook(bookId) {
         document.getElementById('bookTitle').textContent = bookData.title;
         document.getElementById('totalPages').textContent = bookData.pageCount;
 
-        // Restore the page image element
-        pageDisplay.innerHTML = '<img id="pageImage" class="page-image" alt="Book page">';
+        // Restore the page image element and add loading spinner
+        pageDisplay.innerHTML = '<div id="loadingSpinner" class="loading-spinner" style="display: none;"></div><img id="pageImage" class="page-image" alt="Book page">';
+
+        // Add cache status indicator
+        if (!document.getElementById('cacheStatus')) {
+            const cacheStatus = document.createElement('div');
+            cacheStatus.id = 'cacheStatus';
+            cacheStatus.className = 'cache-status';
+            cacheStatus.innerHTML = '<span class="status-text">Cache: </span><span id="cacheStatusText">-</span>';
+            document.body.appendChild(cacheStatus);
+        }
 
         // Load saved page or first page
         const savedPage = getReadingPosition(bookId);
@@ -145,21 +158,50 @@ function displayPage(pageNum) {
     const pageUrl = `/api/books/${bookData.id}/page/${pageNum}`;
     const pageImg = document.getElementById('pageImage');
     const pageDisplay = document.getElementById('pageDisplay');
+    const spinner = document.getElementById('loadingSpinner');
 
     // Reset to base state before loading new image
     pageImg.style.width = '';
     pageImg.style.height = '';
     pageImg.style.transform = '';
 
-    pageImg.onload = () => {
-        // Capture the fitted dimensions as base size
-        baseImageWidth = pageImg.offsetWidth;
-        baseImageHeight = pageImg.offsetHeight;
-        // Apply current zoom level
-        applyZoom();
-    };
+    // Check if page is already preloaded
+    const cached = preloadCache.get(pageNum);
+    if (cached && cached.complete) {
+        // Use cached image immediately
+        pageImg.src = cached.src;
+        baseImageWidth = pageImg.offsetWidth || cached.naturalWidth;
+        baseImageHeight = pageImg.offsetHeight || cached.naturalHeight;
+        requestAnimationFrame(() => {
+            baseImageWidth = pageImg.offsetWidth;
+            baseImageHeight = pageImg.offsetHeight;
+            applyZoom();
+        });
+    } else {
+        // Show loading spinner
+        spinner.style.display = 'block';
+        pageImg.classList.add('loading');
 
-    pageImg.src = pageUrl;
+        pageImg.onload = () => {
+            // Hide loading spinner
+            spinner.style.display = 'none';
+            pageImg.classList.remove('loading');
+            // Capture the fitted dimensions as base size
+            baseImageWidth = pageImg.offsetWidth;
+            baseImageHeight = pageImg.offsetHeight;
+            // Apply current zoom level
+            applyZoom();
+            // Preload adjacent pages
+            preloadPages(pageNum);
+        };
+
+        pageImg.onerror = () => {
+            spinner.style.display = 'none';
+            pageImg.classList.remove('loading');
+        };
+
+        pageImg.src = pageUrl;
+    }
 
     // Reset scroll position when changing pages
     pageDisplay.scrollLeft = 0;
@@ -169,6 +211,74 @@ function displayPage(pageNum) {
     document.getElementById('pageInput').value = pageNum + 1;
     document.getElementById('prevBtn').disabled = pageNum === 0;
     document.getElementById('nextBtn').disabled = pageNum === bookData.pageCount - 1;
+
+    // Preload adjacent pages (also when using cached)
+    if (cached && cached.complete) {
+        preloadPages(pageNum);
+    }
+}
+
+function preloadPages(currentPageNum) {
+    if (!bookData) return;
+
+    // Preload pages ahead and behind
+    for (let offset = 1; offset <= PRELOAD_AHEAD; offset++) {
+        // Preload next pages
+        const nextPage = currentPageNum + offset;
+        if (nextPage < bookData.pageCount && !preloadCache.has(nextPage)) {
+            preloadPage(nextPage);
+        }
+
+        // Preload previous pages
+        const prevPage = currentPageNum - offset;
+        if (prevPage >= 0 && !preloadCache.has(prevPage)) {
+            preloadPage(prevPage);
+        }
+    }
+
+    // Clean up old cached pages (keep only nearby pages)
+    const minKeep = Math.max(0, currentPageNum - PRELOAD_AHEAD - 1);
+    const maxKeep = Math.min(bookData.pageCount - 1, currentPageNum + PRELOAD_AHEAD + 1);
+    for (const pageNum of preloadCache.keys()) {
+        if (pageNum < minKeep || pageNum > maxKeep) {
+            preloadCache.delete(pageNum);
+        }
+    }
+
+    updateCacheStatus();
+}
+
+function preloadPage(pageNum) {
+    const img = new Image();
+    img.onload = () => updateCacheStatus();
+    img.onerror = () => updateCacheStatus();
+    img.src = `/api/books/${bookData.id}/page/${pageNum}`;
+    preloadCache.set(pageNum, img);
+}
+
+function updateCacheStatus() {
+    const statusText = document.getElementById('cacheStatusText');
+    if (!statusText) return;
+
+    let loaded = 0;
+    let total = preloadCache.size;
+
+    for (const img of preloadCache.values()) {
+        if (img.complete && img.naturalWidth > 0) {
+            loaded++;
+        }
+    }
+
+    if (total === 0) {
+        statusText.textContent = '-';
+        statusText.className = '';
+    } else if (loaded === total) {
+        statusText.textContent = `${loaded}/${total} ready`;
+        statusText.className = 'status-ready';
+    } else {
+        statusText.textContent = `${loaded}/${total} loading...`;
+        statusText.className = 'status-loading';
+    }
 }
 
 function nextPage() {
