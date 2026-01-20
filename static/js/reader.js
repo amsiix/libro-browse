@@ -4,6 +4,10 @@ let bookData = null;
 let currentPage = 0;
 let zoomLevel = 1.0;
 
+// PDF.js state
+let pdfDoc = null;
+let renderMode = 'images'; // 'images' or 'native-pdf'
+
 // Panning state
 let isDragging = false;
 let dragStartX = 0;
@@ -119,13 +123,27 @@ async function loadBook(bookId) {
         }
 
         bookData = data.book;
+        renderMode = bookData.renderMode || 'images';
 
         // Update title
         document.getElementById('bookTitle').textContent = bookData.title;
         document.getElementById('totalPages').textContent = bookData.pageCount;
 
-        // Restore the page image element and add loading spinner
-        pageDisplay.innerHTML = '<div id="loadingSpinner" class="loading-spinner" style="display: none;"></div><img id="pageImage" class="page-image" alt="Book page">';
+        // Set up page display based on render mode
+        if (renderMode === 'native-pdf') {
+            // Load PDF document
+            pageDisplay.innerHTML = '<div id="loadingSpinner" class="loading-spinner"></div><canvas id="pdfCanvas" class="page-image"></canvas><div id="textLayer" class="text-layer"></div>';
+
+            const pdfUrl = `/api/books/${bookId}/pdf`;
+            pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
+
+            // Update page count from actual PDF
+            bookData.pageCount = pdfDoc.numPages;
+            document.getElementById('totalPages').textContent = bookData.pageCount;
+        } else {
+            // Image mode - restore the page image element and add loading spinner
+            pageDisplay.innerHTML = '<div id="loadingSpinner" class="loading-spinner" style="display: none;"></div><img id="pageImage" class="page-image" alt="Book page">';
+        }
 
         // Add cache status indicator
         if (!document.getElementById('cacheStatus')) {
@@ -158,6 +176,107 @@ function displayPage(pageNum, direction = null) {
     currentPage = pageNum;
     saveReadingPosition(bookData.id, pageNum);
 
+    if (renderMode === 'native-pdf') {
+        displayPdfPage(pageNum, direction);
+    } else {
+        displayImagePage(pageNum, direction);
+    }
+
+    // Update controls
+    document.getElementById('pageInput').value = pageNum + 1;
+    document.getElementById('prevBtn').disabled = pageNum === 0;
+    document.getElementById('nextBtn').disabled = pageNum === bookData.pageCount - 1;
+}
+
+async function displayPdfPage(pageNum, direction = null) {
+    const canvas = document.getElementById('pdfCanvas');
+    const pageDisplay = document.getElementById('pageDisplay');
+    const spinner = document.getElementById('loadingSpinner');
+    const textLayer = document.getElementById('textLayer');
+
+    if (!pdfDoc || !canvas) return;
+
+    spinner.style.display = 'block';
+
+    try {
+        // PDF.js uses 1-indexed pages
+        const page = await pdfDoc.getPage(pageNum + 1);
+
+        // Calculate scale to fit container (similar to max-width: 90%, max-height: 90%)
+        const containerWidth = pageDisplay.clientWidth * 0.9;
+        const containerHeight = pageDisplay.clientHeight * 0.9;
+
+        const viewport = page.getViewport({ scale: 1 });
+        const scaleX = containerWidth / viewport.width;
+        const scaleY = containerHeight / viewport.height;
+        const baseScale = Math.min(scaleX, scaleY);
+
+        // Apply zoom level
+        const scale = baseScale * zoomLevel;
+        const scaledViewport = page.getViewport({ scale });
+
+        // Set canvas dimensions
+        canvas.width = scaledViewport.width;
+        canvas.height = scaledViewport.height;
+        canvas.style.width = scaledViewport.width + 'px';
+        canvas.style.height = scaledViewport.height + 'px';
+
+        // Capture base dimensions (at zoom 1.0)
+        if (!baseDimensionsCaptured) {
+            const baseViewport = page.getViewport({ scale: baseScale });
+            baseImageWidth = baseViewport.width;
+            baseImageHeight = baseViewport.height;
+            baseDimensionsCaptured = true;
+        }
+
+        // Render PDF page to canvas
+        const ctx = canvas.getContext('2d');
+        await page.render({
+            canvasContext: ctx,
+            viewport: scaledViewport
+        }).promise;
+
+        // Render text layer for selection
+        if (textLayer) {
+            textLayer.innerHTML = '';
+            textLayer.style.width = scaledViewport.width + 'px';
+            textLayer.style.height = scaledViewport.height + 'px';
+
+            const textContent = await page.getTextContent();
+            pdfjsLib.renderTextLayer({
+                textContent: textContent,
+                container: textLayer,
+                viewport: scaledViewport,
+                textDivs: []
+            });
+        }
+
+        spinner.style.display = 'none';
+
+        // Handle zoomed state
+        if (zoomLevel > 1.0) {
+            pageDisplay.classList.add('zoomed');
+        } else {
+            pageDisplay.classList.remove('zoomed');
+        }
+
+        // Set scroll position based on navigation direction
+        requestAnimationFrame(() => {
+            pageDisplay.scrollLeft = 0;
+            if (direction === 'backward' && zoomLevel > 1.0) {
+                pageDisplay.scrollTop = pageDisplay.scrollHeight - pageDisplay.clientHeight;
+            } else {
+                pageDisplay.scrollTop = 0;
+            }
+        });
+
+    } catch (error) {
+        spinner.style.display = 'none';
+        console.error('Error rendering PDF page:', error);
+    }
+}
+
+function displayImagePage(pageNum, direction = null) {
     const pageUrl = `/api/books/${bookData.id}/page/${pageNum}`;
     const pageImg = document.getElementById('pageImage');
     const pageDisplay = document.getElementById('pageDisplay');
@@ -212,15 +331,11 @@ function displayPage(pageNum, direction = null) {
 
     // Set src - onload will fire even for cached images
     pageImg.src = isCached ? cached.src : pageUrl;
-
-    // Update controls
-    document.getElementById('pageInput').value = pageNum + 1;
-    document.getElementById('prevBtn').disabled = pageNum === 0;
-    document.getElementById('nextBtn').disabled = pageNum === bookData.pageCount - 1;
 }
 
 function preloadPages(currentPageNum) {
-    if (!bookData) return;
+    // Only preload for image mode
+    if (!bookData || renderMode === 'native-pdf') return;
 
     // Preload pages ahead and behind
     for (let offset = 1; offset <= PRELOAD_AHEAD; offset++) {
@@ -260,6 +375,13 @@ function preloadPage(pageNum) {
 function updateCacheStatus() {
     const statusText = document.getElementById('cacheStatusText');
     if (!statusText) return;
+
+    // For PDF mode, show different status
+    if (renderMode === 'native-pdf') {
+        statusText.textContent = 'PDF';
+        statusText.className = 'status-ready';
+        return;
+    }
 
     let loaded = 0;
     let total = preloadCache.size;
@@ -327,6 +449,13 @@ function resetZoom() {
 }
 
 function applyZoom() {
+    // For PDF mode, re-render the page at new zoom
+    if (renderMode === 'native-pdf') {
+        displayPdfPage(currentPage);
+        return;
+    }
+
+    // Image mode zoom
     const pageImg = document.getElementById('pageImage');
     const pageDisplay = document.getElementById('pageDisplay');
 

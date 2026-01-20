@@ -246,6 +246,10 @@ def api_book_detail(book_id):
                 'error': 'Book not found'
             }), 404
 
+        # Check if this is a native PDF book
+        is_pdf, pdf_file = is_pdf_book(book_dir)
+        render_mode = metadata.get('render_mode', 'images')  # 'images' or 'native-pdf'
+
         book_info = {
             'id': book_id,
             'title': metadata.get('title', book_id),
@@ -254,7 +258,10 @@ def api_book_detail(book_id):
             'description': metadata.get('description', ''),
             'tags': metadata.get('tags', []),
             'pages': pages,
-            'pageCount': len(pages)
+            'pageCount': len(pages),
+            'type': 'pdf' if is_pdf else 'images',
+            'renderMode': render_mode if is_pdf else 'images',
+            'pdfFile': pdf_file if is_pdf and render_mode == 'native-pdf' else None
         }
 
         return jsonify({
@@ -373,6 +380,32 @@ def api_book_cover(book_id):
             }), 404
 
         return send_file(cover_file, mimetype=mimetypes.guess_type(cover_file)[0])
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/books/<book_id>/pdf')
+def api_book_pdf(book_id):
+    """API endpoint to serve the raw PDF file for native rendering."""
+    try:
+        book_dir = BOOKS_DIR / book_id
+
+        if not book_dir.exists():
+            return jsonify({'success': False, 'error': 'Book not found'}), 404
+
+        is_pdf, pdf_filename = is_pdf_book(book_dir)
+
+        if not is_pdf or not pdf_filename:
+            return jsonify({'success': False, 'error': 'Not a PDF book'}), 400
+
+        pdf_path = book_dir / pdf_filename
+
+        if not pdf_path.exists():
+            return jsonify({'success': False, 'error': 'PDF file not found'}), 404
+
+        return send_file(pdf_path, mimetype='application/pdf')
     except Exception as e:
         return jsonify({
             'success': False,
