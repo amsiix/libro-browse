@@ -248,7 +248,7 @@ def api_book_detail(book_id):
 
         # Check if this is a native PDF book
         is_pdf, pdf_file = is_pdf_book(book_dir)
-        render_mode = metadata.get('render_mode', 'images')  # 'images' or 'native-pdf'
+        render_mode = metadata.get('render_mode', metadata.get('render-mode', 'images'))  # 'images' or 'native-pdf'
 
         book_info = {
             'id': book_id,

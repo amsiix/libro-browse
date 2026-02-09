@@ -59,19 +59,23 @@ body {
 }
 
 .page-display.zoomed {
-    cursor: grab;
     /* Use flex-start + margin:auto for proper scroll behavior when zoomed */
     justify-content: flex-start;
     align-items: flex-start;
 }
 
-.page-display.zoomed .page-image {
+.page-display.pan-mode {
+    cursor: grab;
+}
+
+.page-display.zoomed .page-image,
+.page-display.zoomed .pdf-container {
     margin: auto;
     max-width: none;
     max-height: none;
 }
 
-.page-display.zoomed.dragging {
+.page-display.pan-mode.dragging {
     cursor: grabbing;
     user-select: none;
 }
@@ -83,31 +87,34 @@ body {
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 
-/* PDF text layer for text selection */
-.text-layer {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+/* PDF container - holds canvas and text layer */
+.pdf-container {
+    position: relative;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    margin: auto;
     overflow: hidden;
-    opacity: 0.2;
-    line-height: 1.0;
 }
 
-.text-layer > span {
-    color: transparent;
+/* PDF text layer positioning - PDF.js viewer.css handles the text styling */
+.pdf-container .textLayer {
     position: absolute;
-    white-space: pre;
-    cursor: text;
+    left: 0;
+    top: 0;
+    z-index: 2;
+    overflow: visible;
+    pointer-events: auto;
 }
 
-.text-layer ::selection {
-    background: rgba(0, 0, 255, 0.3);
+/* Ensure text spans aren't clipped */
+.pdf-container .textLayer span {
+    overflow: visible;
 }
 
 /* PDF canvas styling */
 #pdfCanvas {
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    display: block;
+    margin: 0;
+    padding: 0;
 }
 
 /* Controls */

@@ -14,6 +14,7 @@ let dragStartX = 0;
 let dragStartY = 0;
 let scrollStartX = 0;
 let scrollStartY = 0;
+let isPanMode = false;
 
 // Scroll navigation debounce
 let lastScrollPageChange = 0;
@@ -58,7 +59,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const pageDisplay = document.getElementById('pageDisplay');
 
     pageDisplay.addEventListener('mousedown', (e) => {
-        if (zoomLevel > 1.0) {
+        const panAllowed = zoomLevel > 1.0 && (isPanMode || e.button === 1 || e.button === 2);
+        if (panAllowed) {
             isDragging = true;
             dragStartX = e.clientX;
             dragStartY = e.clientY;
@@ -85,6 +87,13 @@ document.addEventListener('DOMContentLoaded', () => {
     pageDisplay.addEventListener('mouseleave', () => {
         isDragging = false;
         pageDisplay.classList.remove('dragging');
+    });
+
+    // Prevent context menu while panning with right-click
+    pageDisplay.addEventListener('contextmenu', (e) => {
+        if (isDragging || isPanMode) {
+            e.preventDefault();
+        }
     });
 
     // Mouse wheel navigation at normal zoom
@@ -131,8 +140,9 @@ async function loadBook(bookId) {
 
         // Set up page display based on render mode
         if (renderMode === 'native-pdf') {
-            // Load PDF document
-            pageDisplay.innerHTML = '<div id="loadingSpinner" class="loading-spinner"></div><canvas id="pdfCanvas" class="page-image"></canvas><div id="textLayer" class="text-layer"></div>';
+            // Load PDF document - wrap canvas and text layer in a container for proper positioning
+            // Note: PDF.js expects class "textLayer" (no hyphen) for its official CSS
+            pageDisplay.innerHTML = '<div id="loadingSpinner" class="loading-spinner"></div><div id="pdfContainer" class="pdf-container"><canvas id="pdfCanvas"></canvas><div id="textLayer" class="textLayer"></div></div>';
 
             const pdfUrl = `/api/books/${bookId}/pdf`;
             pdfDoc = await pdfjsLib.getDocument(pdfUrl).promise;
@@ -190,6 +200,7 @@ function displayPage(pageNum, direction = null) {
 
 async function displayPdfPage(pageNum, direction = null) {
     const canvas = document.getElementById('pdfCanvas');
+    const pdfContainer = document.getElementById('pdfContainer');
     const pageDisplay = document.getElementById('pageDisplay');
     const spinner = document.getElementById('loadingSpinner');
     const textLayer = document.getElementById('textLayer');
@@ -215,6 +226,12 @@ async function displayPdfPage(pageNum, direction = null) {
         const scale = baseScale * zoomLevel;
         const scaledViewport = page.getViewport({ scale });
 
+        // Set container dimensions
+        if (pdfContainer) {
+            pdfContainer.style.width = scaledViewport.width + 'px';
+            pdfContainer.style.height = scaledViewport.height + 'px';
+        }
+
         // Set canvas dimensions
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
@@ -239,16 +256,22 @@ async function displayPdfPage(pageNum, direction = null) {
         // Render text layer for selection
         if (textLayer) {
             textLayer.innerHTML = '';
+
+            // Use the same scaled viewport as the canvas for proper alignment
             textLayer.style.width = scaledViewport.width + 'px';
             textLayer.style.height = scaledViewport.height + 'px';
+            textLayer.style.transform = '';
+            textLayer.style.transformOrigin = '';
 
             const textContent = await page.getTextContent();
-            pdfjsLib.renderTextLayer({
-                textContent: textContent,
+
+            // PDF.js 3.x API - render at the same scale as canvas
+            const textLayerRender = pdfjsLib.renderTextLayer({
+                textContentSource: textContent,
                 container: textLayer,
-                viewport: scaledViewport,
-                textDivs: []
+                viewport: scaledViewport
             });
+            await textLayerRender.promise;
         }
 
         spinner.style.display = 'none';
@@ -499,6 +522,17 @@ function handleKeyboard(e) {
     const pageDisplay = document.getElementById('pageDisplay');
     const panAmount = 100;
 
+    if (e.key === ' ' && !isPanMode) {
+        isPanMode = true;
+        pageDisplay.classList.add('pan-mode');
+        e.preventDefault();
+        return;
+    }
+    if (e.key === ' ' && isPanMode) {
+        e.preventDefault();
+        return;
+    }
+
     // When zoomed, arrow keys pan instead of navigating pages
     if (zoomLevel > 1.0) {
         switch(e.key) {
@@ -529,7 +563,6 @@ function handleKeyboard(e) {
             break;
         case 'ArrowRight':
         case 'PageDown':
-        case ' ':
             nextPage();
             e.preventDefault();
             break;
@@ -557,3 +590,11 @@ function handleKeyboard(e) {
             break;
     }
 }
+
+document.addEventListener('keyup', (e) => {
+    if (e.key === ' ') {
+        const pageDisplay = document.getElementById('pageDisplay');
+        isPanMode = false;
+        pageDisplay.classList.remove('pan-mode');
+    }
+});
