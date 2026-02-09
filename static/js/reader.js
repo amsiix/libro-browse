@@ -30,14 +30,61 @@ let baseDimensionsCaptured = false;
 const preloadCache = new Map();
 const PRELOAD_AHEAD = 3; // Number of pages to preload ahead/behind
 
-// Reading position persistence
+// Reading position persistence (browser-only)
+const READING_POSITIONS_KEY = 'libro-browse-reading-positions-v1';
+let readingPositionsMemory = {};
+
+function loadReadingPositions() {
+    try {
+        const raw = localStorage.getItem(READING_POSITIONS_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+        return { ...readingPositionsMemory };
+    }
+}
+
+function persistReadingPositions(positions) {
+    try {
+        localStorage.setItem(READING_POSITIONS_KEY, JSON.stringify(positions));
+        readingPositionsMemory = { ...positions };
+    } catch (error) {
+        readingPositionsMemory = { ...positions };
+    }
+}
+
 function saveReadingPosition(bookId, pageNum) {
-    localStorage.setItem(`libro-browse-page-${bookId}`, pageNum);
+    const positions = loadReadingPositions();
+    positions[bookId] = {
+        page: pageNum,
+        updatedAt: Date.now()
+    };
+    persistReadingPositions(positions);
 }
 
 function getReadingPosition(bookId) {
-    const saved = localStorage.getItem(`libro-browse-page-${bookId}`);
-    return saved !== null ? parseInt(saved, 10) : null;
+    const positions = loadReadingPositions();
+    if (positions[bookId] && Number.isInteger(positions[bookId].page)) {
+        return positions[bookId].page;
+    }
+
+    // Migrate legacy per-book keys if they exist
+    try {
+        const legacy = localStorage.getItem(`libro-browse-page-${bookId}`);
+        if (legacy !== null) {
+            const pageNum = parseInt(legacy, 10);
+            if (!Number.isNaN(pageNum)) {
+                saveReadingPosition(bookId, pageNum);
+                localStorage.removeItem(`libro-browse-page-${bookId}`);
+                return pageNum;
+            }
+        }
+    } catch (error) {
+        return null;
+    }
+
+    return null;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
