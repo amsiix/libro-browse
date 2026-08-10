@@ -5,6 +5,8 @@ from pathlib import Path
 import mimetypes
 import threading
 
+from book_utils import is_pdf_book, get_pdf_page_count, check_all_books
+
 try:
     from pdf2image import convert_from_path
     pdf2image_available = True
@@ -20,25 +22,6 @@ render_locks_lock = threading.Lock()
 # Configuration
 BOOKS_DIR = Path(__file__).parent / 'books'
 BOOKS_DIR.mkdir(exist_ok=True)
-
-def is_pdf_book(book_dir):
-    """
-    Check if book is PDF by reading metadata.
-    Returns: (bool, pdf_filename)
-    """
-    metadata_file = book_dir / 'metadata.json'
-    if not metadata_file.exists():
-        return False, None
-
-    try:
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
-        if metadata.get('type') == 'pdf':
-            return True, metadata.get('pdf_file', 'book.pdf')
-    except:
-        pass
-
-    return False, None
 
 def render_pdf_page(pdf_path, page_num, output_path, dpi=150):
     """
@@ -98,6 +81,9 @@ def get_all_books():
                 except:
                     continue
 
+                actual_page_count = get_pdf_page_count(book_dir / pdf_file)
+                page_count = actual_page_count if actual_page_count is not None else metadata.get('page_count', 0)
+
                 book_info = {
                     'id': book_dir.name,
                     'title': metadata.get('title', book_dir.name),
@@ -106,7 +92,7 @@ def get_all_books():
                     'description': metadata.get('description', ''),
                     'tags': metadata.get('tags', []),
                     'cover': metadata.get('cover', 'page-001.jpg'),
-                    'pageCount': metadata.get('page_count', 0)
+                    'pageCount': page_count
                 }
                 books.append(book_info)
             else:
@@ -161,16 +147,20 @@ def get_book_pages(book_id):
     is_pdf, pdf_file = is_pdf_book(book_dir)
 
     if is_pdf:
-        # Read page count from metadata
-        metadata_file = book_dir / 'metadata.json'
-        try:
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            page_count = metadata.get('page_count', 0)
-            # Return expected page filenames (may not exist yet)
-            return [f"page-{i+1:03d}.jpg" for i in range(page_count)]
-        except:
-            return []
+        # Page count comes straight from the PDF itself, not metadata.json
+        actual_page_count = get_pdf_page_count(book_dir / pdf_file)
+        if actual_page_count is not None:
+            page_count = actual_page_count
+        else:
+            metadata_file = book_dir / 'metadata.json'
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                page_count = metadata.get('page_count', 0)
+            except Exception:
+                return []
+        # Return expected page filenames (may not exist yet)
+        return [f"page-{i+1:03d}.jpg" for i in range(page_count)]
     else:
         # Existing image book logic
         image_files = sorted([
@@ -412,5 +402,22 @@ def api_book_pdf(book_id):
             'error': str(e)
         }), 500
 
+def print_metadata_warnings():
+    """Cross-check every book's metadata.json against its actual files and
+    print any drift (wrong page_count, swapped PDF, missing cover, etc.)."""
+    issues = check_all_books(BOOKS_DIR, backfill_fingerprint=True)
+    if not issues:
+        return
+    print(f"\n[metadata check] {len(issues)} book(s) with possible metadata drift:")
+    for book_id, warnings in issues.items():
+        for warning in warnings:
+            print(f"  - {book_id}: {warning}")
+    print()
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    DEBUG = True
+    # The Werkzeug reloader re-execs this file in a child process when DEBUG
+    # is on; only run the check there so it doesn't print/backfill twice.
+    if not DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        print_metadata_warnings()
+    app.run(debug=DEBUG, host='0.0.0.0', port=5000)

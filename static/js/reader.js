@@ -475,7 +475,7 @@ function updateCacheStatus() {
 }
 
 function nextPage() {
-    if (currentPage < bookData.pageCount - 1) {
+    if (bookData && currentPage < bookData.pageCount - 1) {
         displayPage(currentPage + 1, 'forward');
     }
 }
@@ -490,7 +490,7 @@ function goToPage() {
     const input = document.getElementById('pageInput');
     const pageNum = parseInt(input.value) - 1;
 
-    if (!isNaN(pageNum) && pageNum >= 0 && pageNum < bookData.pageCount) {
+    if (bookData && !isNaN(pageNum) && pageNum >= 0 && pageNum < bookData.pageCount) {
         displayPage(pageNum);
     } else {
         // Reset to current page if invalid
@@ -618,7 +618,9 @@ function handleKeyboard(e) {
             e.preventDefault();
             break;
         case 'End':
-            displayPage(bookData.pageCount - 1);
+            if (bookData) {
+                displayPage(bookData.pageCount - 1);
+            }
             e.preventDefault();
             break;
         case '+':

@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 import shutil
 
+from book_utils import compute_pdf_fingerprint, check_all_books
+
 try:
     from pypdf import PdfReader
     pypdf_available = True
@@ -176,6 +178,12 @@ def create_book_from_folder(source_folder, book_id=None, metadata=None):
             if tags:
                 metadata['tags'] = [tag.strip() for tag in tags.split(',')]
 
+        # Fingerprint the copied PDF so a later swap of the file (without
+        # updating metadata.json) can be caught by `--verify`.
+        fingerprint = compute_pdf_fingerprint(dest_path / 'book.pdf')
+        if fingerprint:
+            metadata['pdf_fingerprint'] = fingerprint
+
         # Write metadata
         metadata_file = dest_path / 'metadata.json'
         with open(metadata_file, 'w', encoding='utf-8') as f:
@@ -268,13 +276,36 @@ def create_book_from_folder(source_folder, book_id=None, metadata=None):
 
     return True
 
+def verify_books():
+    """Cross-check every book's metadata.json against its actual files and
+    report drift (wrong page_count, swapped PDF, missing cover, etc.)."""
+    books_dir = Path(__file__).parent / 'books'
+    issues = check_all_books(books_dir, backfill_fingerprint=True)
+
+    if not issues:
+        print("All books check out - metadata matches actual content.")
+        return True
+
+    print(f"{len(issues)} book(s) with possible metadata drift:\n")
+    for book_id, warnings in issues.items():
+        print(f"  {book_id}:")
+        for warning in warnings:
+            print(f"    - {warning}")
+    return False
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python add_book.py <folder_path> [book_id]")
+        print("       python add_book.py --verify")
         print("\nExample:")
         print("  python add_book.py ~/Documents/MyScans/BookName")
         print("  python add_book.py ~/Documents/MyScans/BookName custom-book-id")
+        print("  python add_book.py --verify")
         sys.exit(1)
+
+    if sys.argv[1] in ('--verify', '-v'):
+        ok = verify_books()
+        sys.exit(0 if ok else 1)
 
     source_folder = sys.argv[1]
     book_id = sys.argv[2] if len(sys.argv) > 2 else None
