@@ -1,4 +1,5 @@
 import pytest
+from playwright.sync_api import expect
 
 pytestmark = pytest.mark.e2e
 
@@ -75,7 +76,12 @@ def test_save_highlight_via_button(live_server, page, fixture_books_dir):
     page.wait_for_selector('#textLayer span')
 
     page.evaluate(SELECT_FIRST_SPAN_JS)
-    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    # A real-viewport assertion, not just an inline-style substring match:
+    # this fails if the bar exists in the DOM but is rendered off-screen
+    # (the bug the CSS fix in static/css/reader.css addresses), because
+    # to_be_in_viewport() checks actual intersection with the visible
+    # viewport, which a human user would also be bound by.
+    expect(page.locator('#highlightBar')).to_be_in_viewport(timeout=5000)
     page.click('#saveHighlightBtn')
 
     page.wait_for_function(
@@ -97,7 +103,7 @@ def test_keyboard_shortcut_saves_highlight(live_server, page, fixture_books_dir)
     page.wait_for_selector('#textLayer span')
 
     page.evaluate(SELECT_FIRST_SPAN_JS)
-    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    expect(page.locator('#highlightBar')).to_be_in_viewport(timeout=5000)
     page.keyboard.press('h')
 
     page.wait_for_function(
@@ -116,10 +122,23 @@ def test_image_book_has_no_highlight_affordance(live_server, page):
         timeout=10000
     )
     highlight_bar = page.query_selector('#highlightBar')
-    is_visible = highlight_bar is not None and page.evaluate(
-        "el => window.getComputedStyle(el).display !== 'none'", highlight_bar
+    if highlight_bar is None:
+        return  # absent entirely -- correctly hidden
+
+    # Checking computed display alone isn't enough: a bar that is present
+    # but rendered off-screen (the original CSS bug) would also pass a
+    # naive "display !== 'none'" check if it happened to be toggled to
+    # display:flex. Require BOTH that it's genuinely display:none AND that
+    # it does not intersect the viewport, so a regression that leaves the
+    # bar present-but-unreachable for image books is caught too.
+    display = page.evaluate(
+        "el => window.getComputedStyle(el).display", highlight_bar
     )
-    assert not is_visible
+    assert display == 'none', (
+        f"#highlightBar exists for an image-scanned book with display={display!r}; "
+        "expected display:none (no highlight affordance for image books)"
+    )
+    expect(page.locator('#highlightBar')).not_to_be_in_viewport()
 
 
 def test_overlapping_highlight_rejected_in_ui(live_server, page, fixture_books_dir):
@@ -127,7 +146,7 @@ def test_overlapping_highlight_rejected_in_ui(live_server, page, fixture_books_d
     page.wait_for_selector('#textLayer span')
 
     page.evaluate(SELECT_FIRST_SPAN_JS)
-    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    expect(page.locator('#highlightBar')).to_be_in_viewport(timeout=5000)
     page.click('#saveHighlightBtn')
     page.wait_for_function(
         "document.getElementById('highlightPreview').textContent.includes('Saved to')",
@@ -135,7 +154,7 @@ def test_overlapping_highlight_rejected_in_ui(live_server, page, fixture_books_d
     )
 
     page.evaluate(SELECT_FIRST_SPAN_JS)
-    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    expect(page.locator('#highlightBar')).to_be_in_viewport(timeout=5000)
     page.click('#saveHighlightBtn')
     page.wait_for_selector('#highlightBar.error', timeout=5000)
 
