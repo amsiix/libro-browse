@@ -7,6 +7,8 @@ let zoomLevel = 1.0;
 // PDF.js state
 let pdfDoc = null;
 let renderMode = 'images'; // 'images' or 'native-pdf'
+let currentPageTextContent = null;
+let activeSelection = null;
 
 // Panning state
 let isDragging = false;
@@ -164,6 +166,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         lastScrollPageChange = now;
     }, { passive: false });
+
+    document.addEventListener('selectionchange', () => {
+        if (renderMode !== 'native-pdf') return;
+        const textLayer = document.getElementById('textLayer');
+        const highlightBar = document.getElementById('highlightBar');
+        if (!textLayer || !highlightBar) return;
+
+        activeSelection = getSelectionRange(textLayer);
+
+        if (activeSelection) {
+            document.getElementById('highlightPreview').textContent = activeSelection.quote;
+            highlightBar.classList.remove('error');
+            highlightBar.style.display = 'flex';
+        } else {
+            highlightBar.style.display = 'none';
+        }
+    });
 });
 
 async function loadBook(bookId) {
@@ -231,6 +250,9 @@ function displayPage(pageNum, direction = null) {
     }
 
     currentPage = pageNum;
+    activeSelection = null;
+    const highlightBar = document.getElementById('highlightBar');
+    if (highlightBar) highlightBar.style.display = 'none';
     saveReadingPosition(bookData.id, pageNum);
 
     if (renderMode === 'native-pdf') {
@@ -311,6 +333,7 @@ async function displayPdfPage(pageNum, direction = null) {
             textLayer.style.transformOrigin = '';
 
             const textContent = await page.getTextContent();
+            currentPageTextContent = textContent;
 
             // PDF.js 3.x API - render at the same scale as canvas
             const textLayerRender = pdfjsLib.renderTextLayer({
@@ -647,3 +670,56 @@ document.addEventListener('keyup', (e) => {
         pageDisplay.classList.remove('pan-mode');
     }
 });
+
+function getPageFullText() {
+    if (!currentPageTextContent) return '';
+    return currentPageTextContent.items
+        .map(item => item.str + (item.hasEOL ? ' ' : ''))
+        .join('');
+}
+
+function getSpanOffset(spans, targetSpan) {
+    let offset = 0;
+    for (let i = 0; i < spans.length; i++) {
+        if (spans[i] === targetSpan) return offset;
+        const item = currentPageTextContent.items[i];
+        offset += item.str.length + (item.hasEOL ? 1 : 0);
+    }
+    return offset;
+}
+
+function findSpanForNode(node, textLayer) {
+    let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    while (el && el.parentElement !== textLayer) {
+        el = el.parentElement;
+    }
+    return el;
+}
+
+function getSelectionRange(textLayer) {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0);
+    if (!textLayer.contains(range.commonAncestorContainer)) return null;
+
+    const spans = Array.from(textLayer.querySelectorAll('span'));
+    const startSpan = findSpanForNode(range.startContainer, textLayer);
+    const endSpan = findSpanForNode(range.endContainer, textLayer);
+    if (!startSpan || !endSpan) return null;
+
+    const startSpanOffset = getSpanOffset(spans, startSpan);
+    const endSpanOffset = getSpanOffset(spans, endSpan);
+
+    let rangeStart = startSpanOffset + range.startOffset;
+    let rangeEnd = endSpanOffset + range.endOffset;
+
+    if (rangeEnd < rangeStart) {
+        [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+    }
+
+    const quote = selection.toString().replace(/\s+/g, ' ').trim();
+    if (!quote || rangeEnd <= rangeStart) return null;
+
+    return { quote, rangeStart, rangeEnd };
+}

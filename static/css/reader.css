@@ -309,3 +309,43 @@ body {
     border-radius: 3px;
     font-family: monospace;
 }
+
+/* Highlight status bar */
+.highlight-bar {
+    background-color: #2c2c2c;
+    padding: 0.6rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-top: 1px solid #444;
+}
+
+.highlight-bar.error {
+    background-color: #4a1f1f;
+}
+
+.highlight-preview {
+    color: #ccc;
+    font-size: 0.85rem;
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.highlight-save-btn {
+    padding: 0.4rem 0.9rem;
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.highlight-save-btn:hover {
+    background-color: #27ae60;
+}
