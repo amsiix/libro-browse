@@ -55,3 +55,89 @@ def test_page_count_reflects_actual_pdf_not_stale_metadata(live_server, page, fi
     )
     total_pages = page.eval_on_selector('#totalPages', 'el => el.textContent')
     assert total_pages == '2'
+
+
+SELECT_FIRST_SPAN_JS = """
+() => {
+    const span = document.querySelector('#textLayer span');
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+}
+"""
+
+
+def test_save_highlight_via_button(live_server, page, fixture_books_dir):
+    page.goto(f'{live_server}/reader/test-pdf-book')
+    page.wait_for_selector('#textLayer span')
+
+    page.evaluate(SELECT_FIRST_SPAN_JS)
+    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    page.click('#saveHighlightBtn')
+
+    page.wait_for_function(
+        "document.getElementById('highlightPreview').textContent.includes('Saved to')",
+        timeout=5000
+    )
+
+    highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
+    saved_files = list(highlights_dir.glob('*.md'))
+    assert len(saved_files) == 1
+    content = saved_files[0].read_text()
+    assert content.startswith('> ')
+    assert 'Test Author' in content
+    assert 'p. 1.' in content
+
+
+def test_keyboard_shortcut_saves_highlight(live_server, page, fixture_books_dir):
+    page.goto(f'{live_server}/reader/test-pdf-book')
+    page.wait_for_selector('#textLayer span')
+
+    page.evaluate(SELECT_FIRST_SPAN_JS)
+    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    page.keyboard.press('h')
+
+    page.wait_for_function(
+        "document.getElementById('highlightPreview').textContent.includes('Saved to')",
+        timeout=5000
+    )
+
+    highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
+    assert len(list(highlights_dir.glob('*.md'))) == 1
+
+
+def test_image_book_has_no_highlight_affordance(live_server, page):
+    page.goto(f'{live_server}/reader/test-image-book')
+    page.wait_for_function(
+        "document.getElementById('bookTitle').textContent !== 'Loading...'",
+        timeout=10000
+    )
+    highlight_bar = page.query_selector('#highlightBar')
+    is_visible = highlight_bar is not None and page.evaluate(
+        "el => window.getComputedStyle(el).display !== 'none'", highlight_bar
+    )
+    assert not is_visible
+
+
+def test_overlapping_highlight_rejected_in_ui(live_server, page, fixture_books_dir):
+    page.goto(f'{live_server}/reader/test-pdf-book')
+    page.wait_for_selector('#textLayer span')
+
+    page.evaluate(SELECT_FIRST_SPAN_JS)
+    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    page.click('#saveHighlightBtn')
+    page.wait_for_function(
+        "document.getElementById('highlightPreview').textContent.includes('Saved to')",
+        timeout=5000
+    )
+
+    page.evaluate(SELECT_FIRST_SPAN_JS)
+    page.wait_for_selector('#highlightBar[style*="flex"]', timeout=5000)
+    page.click('#saveHighlightBtn')
+    page.wait_for_selector('#highlightBar.error', timeout=5000)
+
+    highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
+    assert len(list(highlights_dir.glob('*.md'))) == 1
