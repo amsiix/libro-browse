@@ -147,3 +147,21 @@ def check_all_books(books_dir, backfill_fingerprint=False):
             if warnings:
                 results[book_dir.name] = warnings
     return results
+
+
+def get_authors(metadata):
+    """
+    Normalize metadata['author'] into a list of author name strings.
+    Accepts either a single string (existing books) or a list of
+    "First Last" strings (new). Always returns a non-empty list.
+    """
+    author = metadata.get('author')
+
+    if isinstance(author, list):
+        names = [str(a).strip() for a in author if str(a).strip()]
+        return names or ['Unknown']
+
+    if isinstance(author, str) and author.strip():
+        return [author.strip()]
+
+    return ['Unknown']

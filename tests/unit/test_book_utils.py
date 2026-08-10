@@ -94,3 +94,25 @@ def test_check_all_books_only_returns_books_with_issues(tmp_path):
 
     issues = book_utils.check_all_books(tmp_path)
     assert set(issues.keys()) == {'bad'}
+
+
+def test_get_authors_single_string():
+    assert book_utils.get_authors({'author': 'Seneca'}) == ['Seneca']
+
+
+def test_get_authors_list_of_strings():
+    metadata = {'author': ['Wolfgang Karl Härdle', 'Léopold Simar']}
+    assert book_utils.get_authors(metadata) == ['Wolfgang Karl Härdle', 'Léopold Simar']
+
+
+def test_get_authors_strips_whitespace_and_drops_empties():
+    metadata = {'author': [' Ada Lovelace ', '', '  ']}
+    assert book_utils.get_authors(metadata) == ['Ada Lovelace']
+
+
+def test_get_authors_defaults_to_unknown_when_missing():
+    assert book_utils.get_authors({}) == ['Unknown']
+
+
+def test_get_authors_defaults_to_unknown_when_blank_string():
+    assert book_utils.get_authors({'author': '   '}) == ['Unknown']
