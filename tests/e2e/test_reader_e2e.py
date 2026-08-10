@@ -91,6 +91,20 @@ def test_save_highlight_via_button(live_server, page, fixture_books_dir):
         timeout=5000
     )
 
+    # Regression check: saveHighlight() clears the browser selection on
+    # success via window.getSelection().removeAllRanges(), which itself
+    # fires a 'selectionchange' event. Without suppressing that one event,
+    # the existing selectionchange listener (activeSelection is now null)
+    # hides the bar immediately, erasing the "Saved to ..." confirmation
+    # before a human could ever read it -- wait_for_function above only
+    # proves the text was true at some instant, not that it stayed
+    # visible, so assert it's both still present and still in the
+    # viewport a beat later (well under the 3s auto-hide).
+    page.wait_for_timeout(300)
+    expect(page.locator('#highlightBar')).to_be_in_viewport()
+    preview_text = page.eval_on_selector('#highlightPreview', 'el => el.textContent')
+    assert 'Saved to' in preview_text
+
     highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
     saved_files = list(highlights_dir.glob('*.md'))
     assert len(saved_files) == 1

@@ -49,11 +49,17 @@ body {
     background-color: #2980b9;
 }
 
-/* Reader container */
+/* Reader container
+   Reserve --highlight-bar-height at the bottom too: .controls (Previous/
+   Next/zoom) is the last flex child here, so without this it sits flush
+   with the viewport bottom -- exactly where the fixed .highlight-bar
+   renders -- and the highlight bar (z-index above it) would visually
+   cover and intercept clicks on the page navigation controls whenever a
+   selection/save confirmation is shown. */
 .reader-container {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 60px);
+    height: calc(100vh - 60px - var(--highlight-bar-height));
 }
 
 /* Page display */

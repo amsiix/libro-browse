@@ -10,6 +10,12 @@ let renderMode = 'images'; // 'images' or 'native-pdf'
 let currentPageTextContent = null;
 let activeSelection = null;
 let hideHighlightBarTimeout = null;
+// saveHighlight() clears the browser's text selection on success, which
+// itself fires a 'selectionchange' event; without this guard that event
+// would immediately hide the highlight bar (see the selectionchange
+// listener below), erasing the "Saved to ..." confirmation before the
+// user ever sees it -- verified in a real browser via screenshot.
+let suppressNextSelectionChange = false;
 
 // Panning state
 let isDragging = false;
@@ -171,15 +177,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('selectionchange', () => {
         if (renderMode !== 'native-pdf') return;
+        if (suppressNextSelectionChange) {
+            // This is the event fired by our own removeAllRanges() cleanup
+            // after a successful save, not a real user selection change --
+            // ignore it once so the "Saved to ..." confirmation stays on
+            // screen for its full duration instead of being hidden instantly.
+            suppressNextSelectionChange = false;
+            return;
+        }
         const textLayer = document.getElementById('textLayer');
         const highlightBar = document.getElementById('highlightBar');
         if (!textLayer || !highlightBar) return;
 
         activeSelection = getSelectionRange(textLayer);
 
-        // A new selection supersedes any pending "hide after save" timer
-        // from a previous save -- otherwise that timer could fire later
-        // and hide this new selection's preview out from under the user.
+        // A new (real) selection supersedes any pending "hide after save"
+        // timer from a previous save -- otherwise that timer could fire
+        // later and hide this new selection's preview out from under the
+        // user.
         clearTimeout(hideHighlightBarTimeout);
         hideHighlightBarTimeout = null;
 
@@ -774,7 +789,15 @@ async function saveHighlight() {
         if (data.success) {
             preview.textContent = `Saved to ${data.path}`;
             highlightBar.classList.remove('error');
+            // removeAllRanges() fires 'selectionchange'; suppress that one
+            // event so it doesn't immediately hide the confirmation we just
+            // showed (see suppressNextSelectionChange's declaration above).
+            suppressNextSelectionChange = true;
             window.getSelection().removeAllRanges();
+            // Safety net: if 'selectionchange' never fires for some reason,
+            // don't leave the flag set and accidentally swallow the next
+            // real selection the user makes.
+            setTimeout(() => { suppressNextSelectionChange = false; }, 100);
             activeSelection = null;
             // Cancel any still-pending hide from a previous save so it can't
             // fire after this one and hide a confirmation/preview it no
