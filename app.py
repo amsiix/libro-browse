@@ -5,7 +5,11 @@ from pathlib import Path
 import mimetypes
 import threading
 
-from book_utils import is_pdf_book, get_pdf_page_count, check_all_books, get_authors
+from book_utils import (
+    is_pdf_book, get_pdf_page_count, check_all_books, get_authors,
+    build_citation, slugify_quote, resolve_highlight_filename,
+    load_highlight_index, save_highlight_index, find_overlapping_entry,
+)
 
 try:
     from pdf2image import convert_from_path
@@ -401,6 +405,73 @@ def api_book_pdf(book_id):
             'success': False,
             'error': str(e)
         }), 500
+
+@app.route('/api/books/<book_id>/highlights', methods=['POST'])
+def api_book_highlight(book_id):
+    """API endpoint to save a text selection as a citation-formatted
+    markdown highlight. Only supported for native-PDF books."""
+    try:
+        book_dir = BOOKS_DIR / book_id
+
+        if not book_dir.exists():
+            return jsonify({'success': False, 'error': 'Book not found'}), 404
+
+        is_pdf, pdf_filename = is_pdf_book(book_dir)
+        metadata_file = book_dir / 'metadata.json'
+        metadata = {}
+        if metadata_file.exists():
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+        render_mode = metadata.get('render_mode', metadata.get('render-mode', 'images'))
+
+        if not is_pdf or render_mode != 'native-pdf':
+            return jsonify({
+                'success': False,
+                'error': 'Highlights are only supported for native-PDF books'
+            }), 400
+
+        data = request.get_json(silent=True) or {}
+        quote = (data.get('quote') or '').strip()
+        page = data.get('page')
+        range_start = data.get('rangeStart')
+        range_end = data.get('rangeEnd')
+
+        if not quote:
+            return jsonify({'success': False, 'error': 'quote is required'}), 400
+        if not isinstance(page, int) or page < 1:
+            return jsonify({'success': False, 'error': 'page must be a positive integer'}), 400
+        if (not isinstance(range_start, int) or not isinstance(range_end, int)
+                or range_end <= range_start):
+            return jsonify({
+                'success': False,
+                'error': 'rangeStart/rangeEnd are required and must form a valid range'
+            }), 400
+
+        highlights_dir = book_dir / 'highlights'
+        highlights_dir.mkdir(exist_ok=True)
+
+        index = load_highlight_index(highlights_dir)
+        conflict = find_overlapping_entry(index, page, range_start, range_end)
+        if conflict:
+            return jsonify({
+                'success': False,
+                'error': f"Overlaps an existing highlight ({conflict['file']})"
+            }), 409
+
+        citation = build_citation(metadata, pdf_filename, page)
+        slug = slugify_quote(quote)
+        filename = resolve_highlight_filename(highlights_dir, page, slug)
+
+        content = f"> {quote}\n\n{citation}\n"
+        with open(highlights_dir / filename, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        index.append({'file': filename, 'page': page, 'rangeStart': range_start, 'rangeEnd': range_end})
+        save_highlight_index(highlights_dir, index)
+
+        return jsonify({'success': True, 'path': f'highlights/{filename}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 def print_metadata_warnings():
     """Cross-check every book's metadata.json against its actual files and
