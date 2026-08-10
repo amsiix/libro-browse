@@ -56,7 +56,7 @@ def test_save_highlight_400_for_invalid_range(app_client):
     assert response.status_code == 400
 
 
-def test_save_highlight_409_for_exact_duplicate(app_client):
+def test_save_highlight_409_for_exact_duplicate(app_client, fixture_books_dir):
     payload = {'page': 1, 'quote': 'Page one text for testing.', 'rangeStart': 0, 'rangeEnd': 26}
     first = app_client.post('/api/books/test-pdf-book/highlights', json=payload)
     assert first.status_code == 200
@@ -64,8 +64,11 @@ def test_save_highlight_409_for_exact_duplicate(app_client):
     second = app_client.post('/api/books/test-pdf-book/highlights', json=payload)
     assert second.status_code == 409
 
+    highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
+    assert len(list(highlights_dir.glob('*.md'))) == 1
 
-def test_save_highlight_409_for_partial_overlap(app_client):
+
+def test_save_highlight_409_for_partial_overlap(app_client, fixture_books_dir):
     app_client.post('/api/books/test-pdf-book/highlights', json={
         'page': 1, 'quote': 'Page one text', 'rangeStart': 0, 'rangeEnd': 13,
     })
@@ -73,6 +76,9 @@ def test_save_highlight_409_for_partial_overlap(app_client):
         'page': 1, 'quote': 'text for testing', 'rangeStart': 8, 'rangeEnd': 26,
     })
     assert response.status_code == 409
+
+    highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
+    assert len(list(highlights_dir.glob('*.md'))) == 1
 
 
 def test_save_highlight_allows_same_text_different_position(app_client, fixture_books_dir):
