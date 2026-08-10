@@ -7,6 +7,7 @@ stay consistent between the two.
 import hashlib
 import json
 import re
+from pathlib import Path
 
 try:
     from pypdf import PdfReader
@@ -188,3 +189,52 @@ def slugify_quote(quote, max_words=6, max_len=50):
     words = normalized.split()[:max_words]
     slug = '-'.join(words)[:max_len].rstrip('-')
     return slug or 'highlight'
+
+
+def load_highlight_index(highlights_dir):
+    """Read books/<id>/highlights/.index.json. Returns [] if missing/invalid."""
+    index_file = Path(highlights_dir) / '.index.json'
+    if not index_file.exists():
+        return []
+    try:
+        with open(index_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def save_highlight_index(highlights_dir, index):
+    """Write books/<id>/highlights/.index.json."""
+    index_file = Path(highlights_dir) / '.index.json'
+    with open(index_file, 'w', encoding='utf-8') as f:
+        json.dump(index, f, indent=2)
+
+
+def ranges_overlap(s1, e1, s2, e2):
+    """Half-open interval overlap check; exact duplicates are the trivial case."""
+    return s1 < e2 and s2 < e1
+
+
+def find_overlapping_entry(index, page, range_start, range_end):
+    """Return the first index entry on the same page whose range overlaps
+    [range_start, range_end), or None."""
+    for entry in index:
+        if entry.get('page') != page:
+            continue
+        if ranges_overlap(range_start, range_end, entry['rangeStart'], entry['rangeEnd']):
+            return entry
+    return None
+
+
+def resolve_highlight_filename(highlights_dir, page, slug):
+    """Return "<page>-<slug>.md", disambiguated with a numeric suffix if
+    a file with that name already exists. Never overwrites."""
+    highlights_dir = Path(highlights_dir)
+    base = f"{page}-{slug}"
+    candidate = f"{base}.md"
+    suffix = 2
+    while (highlights_dir / candidate).exists():
+        candidate = f"{base}-{suffix}.md"
+        suffix += 1
+    return candidate

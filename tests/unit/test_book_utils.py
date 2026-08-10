@@ -167,3 +167,59 @@ def test_slugify_quote_strips_punctuation():
 
 def test_slugify_quote_falls_back_when_empty_after_stripping():
     assert book_utils.slugify_quote('...???!!!') == 'highlight'
+
+
+def test_load_highlight_index_empty_when_missing(tmp_path):
+    assert book_utils.load_highlight_index(tmp_path) == []
+
+
+def test_save_and_load_highlight_index_roundtrip(tmp_path):
+    index = [{'file': '1-foo.md', 'page': 1, 'rangeStart': 0, 'rangeEnd': 10}]
+    book_utils.save_highlight_index(tmp_path, index)
+    assert book_utils.load_highlight_index(tmp_path) == index
+
+
+def test_ranges_overlap_true_for_exact_duplicate():
+    assert book_utils.ranges_overlap(5, 15, 5, 15) is True
+
+
+def test_ranges_overlap_true_for_partial_overlap():
+    assert book_utils.ranges_overlap(5, 15, 10, 20) is True
+
+
+def test_ranges_overlap_false_for_adjacent_ranges():
+    assert book_utils.ranges_overlap(5, 15, 15, 25) is False
+
+
+def test_ranges_overlap_false_for_disjoint_ranges():
+    assert book_utils.ranges_overlap(5, 10, 20, 30) is False
+
+
+def test_find_overlapping_entry_matches_same_page(tmp_path):
+    index = [{'file': '1-foo.md', 'page': 1, 'rangeStart': 5, 'rangeEnd': 15}]
+    conflict = book_utils.find_overlapping_entry(index, page=1, range_start=10, range_end=20)
+    assert conflict == index[0]
+
+
+def test_find_overlapping_entry_ignores_other_pages(tmp_path):
+    index = [{'file': '1-foo.md', 'page': 1, 'rangeStart': 5, 'rangeEnd': 15}]
+    conflict = book_utils.find_overlapping_entry(index, page=2, range_start=5, range_end=15)
+    assert conflict is None
+
+
+def test_find_overlapping_entry_none_when_no_overlap(tmp_path):
+    index = [{'file': '1-foo.md', 'page': 1, 'rangeStart': 5, 'rangeEnd': 15}]
+    conflict = book_utils.find_overlapping_entry(index, page=1, range_start=20, range_end=30)
+    assert conflict is None
+
+
+def test_resolve_highlight_filename_no_collision(tmp_path):
+    assert book_utils.resolve_highlight_filename(tmp_path, 42, 'doubt-is-not') == '42-doubt-is-not.md'
+
+
+def test_resolve_highlight_filename_disambiguates_collision(tmp_path):
+    (tmp_path / '42-doubt-is-not.md').write_text('existing')
+    assert book_utils.resolve_highlight_filename(tmp_path, 42, 'doubt-is-not') == '42-doubt-is-not-2.md'
+
+    (tmp_path / '42-doubt-is-not-2.md').write_text('existing')
+    assert book_utils.resolve_highlight_filename(tmp_path, 42, 'doubt-is-not') == '42-doubt-is-not-3.md'
