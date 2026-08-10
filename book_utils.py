@@ -6,6 +6,7 @@ stay consistent between the two.
 
 import hashlib
 import json
+import re
 
 try:
     from pypdf import PdfReader
@@ -175,3 +176,15 @@ def build_citation(metadata, pdf_filename, page):
     year = metadata.get('year') or 'n.d.'
     title = metadata.get('title') or 'Untitled'
     return f"{authors} ({year}). _{title}_. {pdf_filename}. p. {page}."
+
+
+def slugify_quote(quote, max_words=6, max_len=50):
+    """
+    Turn the first few words of a quote into a filename-safe slug.
+    Falls back to "highlight" if nothing alphanumeric survives.
+    """
+    normalized = re.sub(r"[']", "", quote.lower())  # Remove apostrophes first
+    normalized = re.sub(r"[^\w\s]", " ", normalized)  # Replace other punctuation with spaces
+    words = normalized.split()[:max_words]
+    slug = '-'.join(words)[:max_len].rstrip('-')
+    return slug or 'highlight'

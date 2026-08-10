@@ -147,3 +147,23 @@ def test_build_citation_falls_back_when_title_missing():
     metadata = {'author': 'Someone', 'year': '2020'}
     citation = book_utils.build_citation(metadata, 'book.pdf', 1)
     assert '_Untitled_' in citation
+
+
+def test_slugify_quote_basic():
+    assert book_utils.slugify_quote('Doubt is not a pleasant condition, but certainty is absurd.') \
+        == 'doubt-is-not-a-pleasant-condition'
+
+
+def test_slugify_quote_truncates_to_max_len():
+    quote = 'a very long quote ' * 10
+    slug = book_utils.slugify_quote(quote)
+    assert len(slug) <= 50
+    assert not slug.endswith('-')
+
+
+def test_slugify_quote_strips_punctuation():
+    assert book_utils.slugify_quote("It's--strange, isn't it?") == 'its-strange-isnt-it'
+
+
+def test_slugify_quote_falls_back_when_empty_after_stripping():
+    assert book_utils.slugify_quote('...???!!!') == 'highlight'
