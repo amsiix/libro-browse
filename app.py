@@ -5,7 +5,7 @@ from pathlib import Path
 import mimetypes
 import threading
 
-from book_utils import is_pdf_book, get_pdf_page_count, check_all_books
+from book_utils import is_pdf_book, get_pdf_page_count, check_all_books, get_authors
 
 try:
     from pdf2image import convert_from_path
@@ -87,7 +87,7 @@ def get_all_books():
                 book_info = {
                     'id': book_dir.name,
                     'title': metadata.get('title', book_dir.name),
-                    'author': metadata.get('author', 'Unknown'),
+                    'author': ', '.join(get_authors(metadata)),
                     'year': metadata.get('year', ''),
                     'description': metadata.get('description', ''),
                     'tags': metadata.get('tags', []),
@@ -120,7 +120,7 @@ def get_all_books():
                 book_info = {
                     'id': book_dir.name,
                     'title': metadata.get('title', book_dir.name),
-                    'author': metadata.get('author', 'Unknown'),
+                    'author': ', '.join(get_authors(metadata)),
                     'year': metadata.get('year', ''),
                     'description': metadata.get('description', ''),
                     'tags': metadata.get('tags', []),
@@ -243,7 +243,7 @@ def api_book_detail(book_id):
         book_info = {
             'id': book_id,
             'title': metadata.get('title', book_id),
-            'author': metadata.get('author', 'Unknown'),
+            'author': ', '.join(get_authors(metadata)),
             'year': metadata.get('year', ''),
             'description': metadata.get('description', ''),
             'tags': metadata.get('tags', []),
