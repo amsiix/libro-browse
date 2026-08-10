@@ -155,9 +155,10 @@ def create_book_from_folder(source_folder, book_id=None, metadata=None):
             author_prompt = f"Author(s), comma-separated if multiple [{default_author}]: "
             author_input = input(author_prompt).strip()
             if not author_input:
-                author_input = default_author
-            author_names = [name.strip() for name in author_input.split(',') if name.strip()]
-            author = author_names[0] if len(author_names) == 1 else author_names
+                author = default_author
+            else:
+                author_names = [name.strip() for name in author_input.split(',') if name.strip()]
+                author = author_names[0] if len(author_names) == 1 else (author_names or default_author)
 
             year = input("Year (optional): ").strip()
             description = input("Description (optional): ").strip()
