@@ -678,14 +678,19 @@ function getPageFullText() {
         .join('');
 }
 
-function getSpanOffset(spans, targetSpan) {
+function buildSpanOffsets(textLayer) {
+    const spans = Array.from(textLayer.querySelectorAll('span'));
+    const offsets = new Map();
     let offset = 0;
-    for (let i = 0; i < spans.length; i++) {
-        if (spans[i] === targetSpan) return offset;
-        const item = currentPageTextContent.items[i];
+    let spanIndex = 0;
+    for (const item of currentPageTextContent.items) {
+        if (item.str !== '' && spanIndex < spans.length) {
+            offsets.set(spans[spanIndex], offset);
+            spanIndex++;
+        }
         offset += item.str.length + (item.hasEOL ? 1 : 0);
     }
-    return offset;
+    return offsets;
 }
 
 function findSpanForNode(node, textLayer) {
@@ -703,13 +708,14 @@ function getSelectionRange(textLayer) {
     const range = selection.getRangeAt(0);
     if (!textLayer.contains(range.commonAncestorContainer)) return null;
 
-    const spans = Array.from(textLayer.querySelectorAll('span'));
     const startSpan = findSpanForNode(range.startContainer, textLayer);
     const endSpan = findSpanForNode(range.endContainer, textLayer);
     if (!startSpan || !endSpan) return null;
 
-    const startSpanOffset = getSpanOffset(spans, startSpan);
-    const endSpanOffset = getSpanOffset(spans, endSpan);
+    const spanOffsets = buildSpanOffsets(textLayer);
+    const startSpanOffset = spanOffsets.get(startSpan);
+    const endSpanOffset = spanOffsets.get(endSpan);
+    if (startSpanOffset === undefined || endSpanOffset === undefined) return null;
 
     let rangeStart = startSpanOffset + range.startOffset;
     let rangeEnd = endSpanOffset + range.endOffset;
