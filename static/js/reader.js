@@ -9,6 +9,7 @@ let pdfDoc = null;
 let renderMode = 'images'; // 'images' or 'native-pdf'
 let currentPageTextContent = null;
 let activeSelection = null;
+let hideHighlightBarTimeout = null;
 
 // Panning state
 let isDragging = false;
@@ -176,6 +177,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         activeSelection = getSelectionRange(textLayer);
 
+        // A new selection supersedes any pending "hide after save" timer
+        // from a previous save -- otherwise that timer could fire later
+        // and hide this new selection's preview out from under the user.
+        clearTimeout(hideHighlightBarTimeout);
+        hideHighlightBarTimeout = null;
+
         if (activeSelection) {
             document.getElementById('highlightPreview').textContent = activeSelection.quote;
             highlightBar.classList.remove('error');
@@ -252,6 +259,8 @@ function displayPage(pageNum, direction = null) {
 
     currentPage = pageNum;
     activeSelection = null;
+    clearTimeout(hideHighlightBarTimeout);
+    hideHighlightBarTimeout = null;
     const highlightBar = document.getElementById('highlightBar');
     if (highlightBar) highlightBar.style.display = 'none';
     saveReadingPosition(bookData.id, pageNum);
@@ -686,7 +695,13 @@ function getPageFullText() {
 }
 
 function buildSpanOffsets(textLayer) {
-    const spans = Array.from(textLayer.querySelectorAll('span'));
+    // Direct children only, matching findSpanForNode() below (which climbs
+    // to a direct child of textLayer) by construction rather than by
+    // coincidence. querySelectorAll('span') would also pick up any nested
+    // spans; PDF.js's text layer is flat today (span/br siblings only) so
+    // the two happen to agree, but this makes that an invariant instead of
+    // an assumption.
+    const spans = Array.from(textLayer.children).filter(el => el.tagName === 'SPAN');
     const offsets = new Map();
     let offset = 0;
     let spanIndex = 0;
@@ -761,7 +776,14 @@ async function saveHighlight() {
             highlightBar.classList.remove('error');
             window.getSelection().removeAllRanges();
             activeSelection = null;
-            setTimeout(() => { highlightBar.style.display = 'none'; }, 3000);
+            // Cancel any still-pending hide from a previous save so it can't
+            // fire after this one and hide a confirmation/preview it no
+            // longer applies to (e.g. saving twice within 3s).
+            clearTimeout(hideHighlightBarTimeout);
+            hideHighlightBarTimeout = setTimeout(() => {
+                highlightBar.style.display = 'none';
+                hideHighlightBarTimeout = null;
+            }, 3000);
         } else {
             preview.textContent = data.error || 'Failed to save highlight';
             highlightBar.classList.add('error');

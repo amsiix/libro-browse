@@ -171,6 +171,15 @@ def test_slugify_quote_falls_back_when_empty_after_stripping():
     assert book_utils.slugify_quote('...???!!!') == 'highlight'
 
 
+def test_slugify_quote_strips_curly_apostrophes():
+    # Real PDF text extraction commonly yields Unicode curly quotes
+    # (U+2019 right single quote) rather than straight ASCII apostrophes;
+    # both should slug identically.
+    assert book_utils.slugify_quote("It’s—strange, isn’t it?") \
+        == book_utils.slugify_quote("It's--strange, isn't it?") \
+        == 'its-strange-isnt-it'
+
+
 def test_load_highlight_index_empty_when_missing(tmp_path):
     assert book_utils.load_highlight_index(tmp_path) == []
 

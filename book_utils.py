@@ -184,7 +184,12 @@ def slugify_quote(quote, max_words=6, max_len=50):
     Turn the first few words of a quote into a filename-safe slug.
     Falls back to "highlight" if nothing alphanumeric survives.
     """
-    normalized = re.sub(r"[']", "", quote.lower())  # Remove apostrophes first
+    # Remove apostrophes first -- both straight ASCII (') and the Unicode
+    # curly quotes (’ right single quote, ‘ left single quote)
+    # that real PDF text extraction very commonly produces, so e.g.
+    # "isn’t" slugs the same as "isn't" instead of splitting into
+    # "isn" + "t".
+    normalized = re.sub(r"['‘’]", "", quote.lower())
     normalized = re.sub(r"[^\w\s]", " ", normalized)  # Replace other punctuation with spaces
     words = normalized.split()[:max_words]
     slug = '-'.join(words)[:max_len].rstrip('-')
