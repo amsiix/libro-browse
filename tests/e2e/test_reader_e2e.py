@@ -1,6 +1,8 @@
 import pytest
 from playwright.sync_api import expect
 
+from tests.fixtures.build_books import build_pdf_book
+
 pytestmark = pytest.mark.e2e
 
 
@@ -160,3 +162,89 @@ def test_overlapping_highlight_rejected_in_ui(live_server, page, fixture_books_d
 
     highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
     assert len(list(highlights_dir.glob('*.md'))) == 1
+
+
+SELECT_ACROSS_SPANS_JS = """
+() => {
+    const spans = Array.from(document.querySelectorAll('#textLayer span'));
+    if (spans.length < 2) {
+        throw new Error(`expected >= 2 spans, found ${spans.length}`);
+    }
+    const first = spans[0];
+    const second = spans[1];
+    const range = document.createRange();
+    range.setStart(first.firstChild, 0);
+    range.setEnd(second.firstChild, second.firstChild.length);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    return spans.length;
+}
+"""
+
+
+def test_save_highlight_spanning_multiple_spans(live_server, page, fixture_books_dir):
+    """Regression coverage for the offset-mapping algorithm
+    (buildSpanOffsets/getSelectionRange in static/js/reader.js) across a
+    selection that spans more than one PDF.js text item/DOM span -- every
+    other highlight e2e test selects a single whole span (the fixture PDF
+    historically drew exactly one drawString() per page), so this path
+    (including the empty-string-item/DOM-span-skip case buildSpanOffsets
+    guards against) was previously untested by anything automated.
+
+    Builds a page with two separately-drawn text segments on their own
+    lines (-> two PDF.js text items/spans), selects across both, and
+    verifies the saved quote exactly matches the underlying page text
+    slice computed independently via getPageFullText().slice(start, end)
+    -- i.e. the two ways of deriving "what text is at this range" agree.
+    """
+    build_pdf_book(
+        fixture_books_dir, 'multi-span-book',
+        pages_text=[['Hello', 'World this is a test.']],
+    )
+
+    # Intercept the actual save request so we assert against exactly what
+    # the frontend computed and sent, not an assumption about it.
+    captured = {}
+
+    def capture_highlight_post(route):
+        captured.update(route.request.post_data_json)
+        route.continue_()
+
+    page.route('**/api/books/multi-span-book/highlights', capture_highlight_post)
+
+    page.goto(f'{live_server}/reader/multi-span-book')
+    page.wait_for_selector('#textLayer span')
+
+    span_count = page.evaluate(SELECT_ACROSS_SPANS_JS)
+    assert span_count >= 2, 'fixture did not produce multiple text-layer spans'
+
+    expect(page.locator('#highlightBar')).to_be_in_viewport(timeout=5000)
+    preview_text = page.eval_on_selector('#highlightPreview', 'el => el.textContent')
+    assert preview_text == 'Hello World this is a test.'
+
+    page.click('#saveHighlightBtn')
+    page.wait_for_function(
+        "document.getElementById('highlightPreview').textContent.includes('Saved to')",
+        timeout=5000
+    )
+
+    assert captured.get('quote') == 'Hello World this is a test.'
+    range_start = captured['rangeStart']
+    range_end = captured['rangeEnd']
+
+    # Independently recompute the substring the backend saved, straight
+    # from the page's extracted text content, and require it to match
+    # exactly what was sent/saved -- proving rangeStart/rangeEnd (derived
+    # from multiple spans) actually point at the selected text.
+    slice_text = page.evaluate(
+        "([s, e]) => getPageFullText().slice(s, e)", [range_start, range_end]
+    )
+    assert slice_text == captured['quote']
+
+    highlights_dir = fixture_books_dir / 'multi-span-book' / 'highlights'
+    saved_files = list(highlights_dir.glob('*.md'))
+    assert len(saved_files) == 1
+    content = saved_files[0].read_text()
+    assert '> Hello World this is a test.' in content

@@ -11,17 +11,40 @@ from PIL import Image
 def build_pdf_book(books_dir, book_id, pages_text, metadata_overrides=None):
     """
     Create a books/<book_id>/ folder containing a small real PDF (one page
-    per string in pages_text, each with that text drawn on it) and a
-    matching metadata.json declaring it as a native-pdf book.
-    Returns the book_dir Path.
+    per entry in pages_text) and a matching metadata.json declaring it as
+    a native-pdf book. Returns the book_dir Path.
+
+    Each entry in pages_text is normally a single string, drawn with one
+    c.drawString() call -- which is what makes PDF.js produce exactly one
+    text item/DOM span for that page. To exercise the multi-item offset
+    math (buildSpanOffsets/getSelectionRange in reader.js), an entry may
+    instead be a list/tuple of strings: each is drawn with its own
+    drawString() call on its own line (PDF.js merges same-line, abutting
+    drawString() calls back into a single text item, so separate lines
+    are what reliably produce separate text items/spans -- one per
+    segment). Segments are joined with a single space when extracted
+    (PDF.js sets hasEOL on the line-ending item, and both reader.js's
+    getPageFullText() and this module's expected-text helper below treat
+    hasEOL as "insert one space"), so write segment text without your own
+    trailing/leading spaces (e.g. ["Hello", "World this is a test."]).
     """
     book_dir = Path(books_dir) / book_id
     book_dir.mkdir(parents=True, exist_ok=True)
 
+    font_name = 'Helvetica'
+    font_size = 12
+    line_height = 16
+
     pdf_path = book_dir / 'book.pdf'
     c = canvas.Canvas(str(pdf_path))
-    for text in pages_text:
-        c.drawString(72, 700, text)
+    c.setFont(font_name, font_size)
+    for page_text in pages_text:
+        segments = page_text if isinstance(page_text, (list, tuple)) else [page_text]
+        x = 72
+        y = 700
+        for segment in segments:
+            c.drawString(x, y, segment)
+            y -= line_height
         c.showPage()
     c.save()
 
