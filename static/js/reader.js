@@ -100,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('zoomInBtn').addEventListener('click', zoomIn);
     document.getElementById('zoomOutBtn').addEventListener('click', zoomOut);
     document.getElementById('resetZoomBtn').addEventListener('click', resetZoom);
+    document.getElementById('saveHighlightBtn').addEventListener('click', saveHighlight);
 
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
@@ -589,6 +590,12 @@ function handleKeyboard(e) {
         return;
     }
 
+    if ((e.key === 'h' || e.key === 'H') && activeSelection) {
+        saveHighlight();
+        e.preventDefault();
+        return;
+    }
+
     const pageDisplay = document.getElementById('pageDisplay');
     const panAmount = 100;
 
@@ -728,4 +735,39 @@ function getSelectionRange(textLayer) {
     if (!quote || rangeEnd <= rangeStart) return null;
 
     return { quote, rangeStart, rangeEnd };
+}
+
+async function saveHighlight() {
+    if (!activeSelection || !bookData) return;
+
+    const highlightBar = document.getElementById('highlightBar');
+    const preview = document.getElementById('highlightPreview');
+
+    try {
+        const response = await fetch(`/api/books/${bookData.id}/highlights`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                page: currentPage + 1,
+                quote: activeSelection.quote,
+                rangeStart: activeSelection.rangeStart,
+                rangeEnd: activeSelection.rangeEnd
+            })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            preview.textContent = `Saved to ${data.path}`;
+            highlightBar.classList.remove('error');
+            window.getSelection().removeAllRanges();
+            activeSelection = null;
+            setTimeout(() => { highlightBar.style.display = 'none'; }, 3000);
+        } else {
+            preview.textContent = data.error || 'Failed to save highlight';
+            highlightBar.classList.add('error');
+        }
+    } catch (error) {
+        preview.textContent = 'Failed to save highlight';
+        highlightBar.classList.add('error');
+    }
 }
