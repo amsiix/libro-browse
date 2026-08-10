@@ -20,7 +20,7 @@ render_locks = {}
 render_locks_lock = threading.Lock()
 
 # Configuration
-BOOKS_DIR = Path(__file__).parent / 'books'
+BOOKS_DIR = Path(os.environ.get('LIBRO_BOOKS_DIR', Path(__file__).parent / 'books'))
 BOOKS_DIR.mkdir(exist_ok=True)
 
 def render_pdf_page(pdf_path, page_num, output_path, dpi=150):
@@ -415,9 +415,10 @@ def print_metadata_warnings():
     print()
 
 if __name__ == '__main__':
-    DEBUG = True
+    DEBUG = os.environ.get('LIBRO_DEBUG', '1') != '0'
+    PORT = int(os.environ.get('LIBRO_PORT', '5000'))
     # The Werkzeug reloader re-execs this file in a child process when DEBUG
     # is on; only run the check there so it doesn't print/backfill twice.
     if not DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         print_metadata_warnings()
-    app.run(debug=DEBUG, host='0.0.0.0', port=5000)
+    app.run(debug=DEBUG, host='0.0.0.0', port=PORT)
