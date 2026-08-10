@@ -165,3 +165,13 @@ def get_authors(metadata):
         return [author.strip()]
 
     return ['Unknown']
+
+
+def build_citation(metadata, pdf_filename, page):
+    """
+    Build a citation string: "<authors> (<year>). _<title>_. <pdf filename>. p. <page>."
+    """
+    authors = ', '.join(get_authors(metadata))
+    year = metadata.get('year') or 'n.d.'
+    title = metadata.get('title') or 'Untitled'
+    return f"{authors} ({year}). _{title}_. {pdf_filename}. p. {page}."

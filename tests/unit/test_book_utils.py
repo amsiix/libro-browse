@@ -116,3 +116,34 @@ def test_get_authors_defaults_to_unknown_when_missing():
 
 def test_get_authors_defaults_to_unknown_when_blank_string():
     assert book_utils.get_authors({'author': '   '}) == ['Unknown']
+
+
+def test_build_citation_single_author():
+    metadata = {'title': 'The Theory of Probability', 'author': 'B. V. Gnedenko', 'year': '1978'}
+    citation = book_utils.build_citation(metadata, 'Gnedenko-Theory of Probability.pdf', 42)
+    assert citation == (
+        'B. V. Gnedenko (1978). _The Theory of Probability_. '
+        'Gnedenko-Theory of Probability.pdf. p. 42.'
+    )
+
+
+def test_build_citation_multi_author_comma_separated():
+    metadata = {
+        'title': 'Applied Multivariate Statistical Analysis',
+        'author': ['Wolfgang Karl Härdle', 'Léopold Simar'],
+        'year': '2003',
+    }
+    citation = book_utils.build_citation(metadata, 'stats.pdf', 5)
+    assert citation.startswith('Wolfgang Karl Härdle, Léopold Simar (2003).')
+
+
+def test_build_citation_falls_back_when_year_missing():
+    metadata = {'title': 'Untitled Work', 'author': 'Someone'}
+    citation = book_utils.build_citation(metadata, 'book.pdf', 1)
+    assert '(n.d.)' in citation
+
+
+def test_build_citation_falls_back_when_title_missing():
+    metadata = {'author': 'Someone', 'year': '2020'}
+    citation = book_utils.build_citation(metadata, 'book.pdf', 1)
+    assert '_Untitled_' in citation
