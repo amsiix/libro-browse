@@ -191,17 +191,42 @@ def slugify_quote(quote, max_words=6, max_len=50):
     return slug or 'highlight'
 
 
+class HighlightIndexError(Exception):
+    """Raised by load_highlight_index() when .index.json exists but can't
+    be parsed as a JSON list -- deliberately distinct from "missing",
+    which is the normal, safe-to-start-fresh case and returns [] instead.
+    Callers must NOT treat this the same as "missing" (e.g. by catching
+    it and writing a fresh index): a corrupt-but-present index still
+    reflects real highlights whose .md files are on disk, and silently
+    replacing it with a fresh index would permanently discard their
+    range data, leaving those files unprotected against future overlaps."""
+
+
 def load_highlight_index(highlights_dir):
-    """Read books/<id>/highlights/.index.json. Returns [] if missing/invalid."""
+    """Read books/<id>/highlights/.index.json.
+
+    Returns [] if the file does not exist (nothing recorded yet). Raises
+    HighlightIndexError if the file exists but is not valid JSON or does
+    not contain a JSON list, so a corrupt index surfaces as an error
+    instead of being silently discarded and overwritten by the next
+    highlight save.
+    """
     index_file = Path(highlights_dir) / '.index.json'
     if not index_file.exists():
         return []
     try:
         with open(index_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    except Exception as e:
+        raise HighlightIndexError(
+            f"{index_file} exists but is not valid JSON: {e}"
+        ) from e
+    if not isinstance(data, list):
+        raise HighlightIndexError(
+            f"{index_file} exists but does not contain a JSON list "
+            f"(got {type(data).__name__})"
+        )
+    return data
 
 
 def save_highlight_index(highlights_dir, index):

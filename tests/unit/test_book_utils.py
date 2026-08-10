@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import book_utils
 from tests.fixtures.build_books import build_pdf_book, build_image_book
 
@@ -171,6 +173,22 @@ def test_slugify_quote_falls_back_when_empty_after_stripping():
 
 def test_load_highlight_index_empty_when_missing(tmp_path):
     assert book_utils.load_highlight_index(tmp_path) == []
+
+
+def test_load_highlight_index_raises_on_corrupt_json(tmp_path):
+    """A present-but-unparseable .index.json must NOT be treated the same
+    as "missing" -- doing so would let a caller silently overwrite it
+    with a fresh index, discarding every previously recorded highlight's
+    range data (the .md files stay on disk but lose overlap protection)."""
+    (tmp_path / '.index.json').write_text('{not valid json', encoding='utf-8')
+    with pytest.raises(book_utils.HighlightIndexError):
+        book_utils.load_highlight_index(tmp_path)
+
+
+def test_load_highlight_index_raises_when_not_a_list(tmp_path):
+    (tmp_path / '.index.json').write_text('{"oops": "an object, not a list"}', encoding='utf-8')
+    with pytest.raises(book_utils.HighlightIndexError):
+        book_utils.load_highlight_index(tmp_path)
 
 
 def test_save_and_load_highlight_index_roundtrip(tmp_path):

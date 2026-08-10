@@ -14,6 +14,29 @@ def test_save_highlight_creates_file_with_citation(app_client, fixture_books_dir
     assert 'Test Author (2020). _Test Book_. book.pdf. p. 1.' in content
 
 
+def test_save_highlight_500_and_untouched_when_index_corrupt(app_client, fixture_books_dir):
+    """A corrupt .index.json must surface as an error (500 here, via the
+    route's existing try/except around load_highlight_index's
+    HighlightIndexError), not be silently discarded and overwritten by
+    the new save -- which would destroy every previously recorded
+    highlight's range data while their .md files stay on disk, orphaned
+    from overlap protection."""
+    highlights_dir = fixture_books_dir / 'test-pdf-book' / 'highlights'
+    highlights_dir.mkdir(exist_ok=True)
+    (highlights_dir / '.index.json').write_text('{not valid json', encoding='utf-8')
+
+    response = app_client.post('/api/books/test-pdf-book/highlights', json={
+        'page': 1, 'quote': 'Page one text for testing.',
+        'rangeStart': 0, 'rangeEnd': 26,
+    })
+
+    assert response.status_code == 500
+    # The corrupt file itself, and the fact that nothing new was written,
+    # prove the save was rejected rather than silently proceeding.
+    assert (highlights_dir / '.index.json').read_text(encoding='utf-8') == '{not valid json'
+    assert list(highlights_dir.glob('*.md')) == []
+
+
 def test_save_highlight_writes_index_entry(app_client, fixture_books_dir):
     app_client.post('/api/books/test-pdf-book/highlights', json={
         'page': 1, 'quote': 'Page one text for testing.',
