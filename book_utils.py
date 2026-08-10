@@ -6,6 +6,8 @@ stay consistent between the two.
 
 import hashlib
 import json
+import re
+from pathlib import Path
 
 try:
     from pypdf import PdfReader
@@ -147,3 +149,122 @@ def check_all_books(books_dir, backfill_fingerprint=False):
             if warnings:
                 results[book_dir.name] = warnings
     return results
+
+
+def get_authors(metadata):
+    """
+    Normalize metadata['author'] into a list of author name strings.
+    Accepts either a single string (existing books) or a list of
+    "First Last" strings (new). Always returns a non-empty list.
+    """
+    author = metadata.get('author')
+
+    if isinstance(author, list):
+        names = [str(a).strip() for a in author if str(a).strip()]
+        return names or ['Unknown']
+
+    if isinstance(author, str) and author.strip():
+        return [author.strip()]
+
+    return ['Unknown']
+
+
+def build_citation(metadata, pdf_filename, page):
+    """
+    Build a citation string: "<authors> (<year>). _<title>_. <pdf filename>. p. <page>."
+    """
+    authors = ', '.join(get_authors(metadata))
+    year = metadata.get('year') or 'n.d.'
+    title = metadata.get('title') or 'Untitled'
+    return f"{authors} ({year}). _{title}_. {pdf_filename}. p. {page}."
+
+
+def slugify_quote(quote, max_words=6, max_len=50):
+    """
+    Turn the first few words of a quote into a filename-safe slug.
+    Falls back to "highlight" if nothing alphanumeric survives.
+    """
+    # Remove apostrophes first -- both straight ASCII (') and the Unicode
+    # curly quotes (’ right single quote, ‘ left single quote)
+    # that real PDF text extraction very commonly produces, so e.g.
+    # "isn’t" slugs the same as "isn't" instead of splitting into
+    # "isn" + "t".
+    normalized = re.sub(r"['‘’]", "", quote.lower())
+    normalized = re.sub(r"[^\w\s]", " ", normalized)  # Replace other punctuation with spaces
+    words = normalized.split()[:max_words]
+    slug = '-'.join(words)[:max_len].rstrip('-')
+    return slug or 'highlight'
+
+
+class HighlightIndexError(Exception):
+    """Raised by load_highlight_index() when .index.json exists but can't
+    be parsed as a JSON list -- deliberately distinct from "missing",
+    which is the normal, safe-to-start-fresh case and returns [] instead.
+    Callers must NOT treat this the same as "missing" (e.g. by catching
+    it and writing a fresh index): a corrupt-but-present index still
+    reflects real highlights whose .md files are on disk, and silently
+    replacing it with a fresh index would permanently discard their
+    range data, leaving those files unprotected against future overlaps."""
+
+
+def load_highlight_index(highlights_dir):
+    """Read books/<id>/highlights/.index.json.
+
+    Returns [] if the file does not exist (nothing recorded yet). Raises
+    HighlightIndexError if the file exists but is not valid JSON or does
+    not contain a JSON list, so a corrupt index surfaces as an error
+    instead of being silently discarded and overwritten by the next
+    highlight save.
+    """
+    index_file = Path(highlights_dir) / '.index.json'
+    if not index_file.exists():
+        return []
+    try:
+        with open(index_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        raise HighlightIndexError(
+            f"{index_file} exists but is not valid JSON: {e}"
+        ) from e
+    if not isinstance(data, list):
+        raise HighlightIndexError(
+            f"{index_file} exists but does not contain a JSON list "
+            f"(got {type(data).__name__})"
+        )
+    return data
+
+
+def save_highlight_index(highlights_dir, index):
+    """Write books/<id>/highlights/.index.json."""
+    index_file = Path(highlights_dir) / '.index.json'
+    with open(index_file, 'w', encoding='utf-8') as f:
+        json.dump(index, f, indent=2)
+
+
+def ranges_overlap(s1, e1, s2, e2):
+    """Half-open interval overlap check; exact duplicates are the trivial case."""
+    return s1 < e2 and s2 < e1
+
+
+def find_overlapping_entry(index, page, range_start, range_end):
+    """Return the first index entry on the same page whose range overlaps
+    [range_start, range_end), or None."""
+    for entry in index:
+        if entry.get('page') != page:
+            continue
+        if ranges_overlap(range_start, range_end, entry['rangeStart'], entry['rangeEnd']):
+            return entry
+    return None
+
+
+def resolve_highlight_filename(highlights_dir, page, slug):
+    """Return "<page>-<slug>.md", disambiguated with a numeric suffix if
+    a file with that name already exists. Never overwrites."""
+    highlights_dir = Path(highlights_dir)
+    base = f"{page}-{slug}"
+    candidate = f"{base}.md"
+    suffix = 2
+    while (highlights_dir / candidate).exists():
+        candidate = f"{base}-{suffix}.md"
+        suffix += 1
+    return candidate

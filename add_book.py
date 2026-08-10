@@ -152,10 +152,13 @@ def create_book_from_folder(source_folder, book_id=None, metadata=None):
                 title = default_title
 
             default_author = pdf_metadata.get('author') or 'Unknown'
-            author_prompt = f"Author [{default_author}]: "
-            author = input(author_prompt).strip()
-            if not author:
+            author_prompt = f"Author(s), comma-separated if multiple [{default_author}]: "
+            author_input = input(author_prompt).strip()
+            if not author_input:
                 author = default_author
+            else:
+                author_names = [name.strip() for name in author_input.split(',') if name.strip()]
+                author = author_names[0] if len(author_names) == 1 else (author_names or default_author)
 
             year = input("Year (optional): ").strip()
             description = input("Description (optional): ").strip()
@@ -240,7 +243,9 @@ def create_book_from_folder(source_folder, book_id=None, metadata=None):
             title = book_id.replace('-', ' ').title()
             print(f"Using default title: {title}")
 
-        author = input("Author (optional): ").strip()
+        author_input = input("Author(s), comma-separated if multiple (optional): ").strip()
+        author_names = [name.strip() for name in author_input.split(',') if name.strip()]
+        author = author_names[0] if len(author_names) == 1 else (author_names or None)
         year = input("Year (optional): ").strip()
         description = input("Description (optional): ").strip()
         tags = input("Tags (comma-separated, optional): ").strip()

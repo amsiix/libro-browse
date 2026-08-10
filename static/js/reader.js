@@ -7,6 +7,15 @@ let zoomLevel = 1.0;
 // PDF.js state
 let pdfDoc = null;
 let renderMode = 'images'; // 'images' or 'native-pdf'
+let currentPageTextContent = null;
+let activeSelection = null;
+let hideHighlightBarTimeout = null;
+// saveHighlight() clears the browser's text selection on success, which
+// itself fires a 'selectionchange' event; without this guard that event
+// would immediately hide the highlight bar (see the selectionchange
+// listener below), erasing the "Saved to ..." confirmation before the
+// user ever sees it -- verified in a real browser via screenshot.
+let suppressNextSelectionChange = false;
 
 // Panning state
 let isDragging = false;
@@ -98,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('zoomInBtn').addEventListener('click', zoomIn);
     document.getElementById('zoomOutBtn').addEventListener('click', zoomOut);
     document.getElementById('resetZoomBtn').addEventListener('click', resetZoom);
+    document.getElementById('saveHighlightBtn').addEventListener('click', saveHighlight);
 
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
@@ -164,6 +174,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         lastScrollPageChange = now;
     }, { passive: false });
+
+    document.addEventListener('selectionchange', () => {
+        if (renderMode !== 'native-pdf') return;
+        if (suppressNextSelectionChange) {
+            // This is the event fired by our own removeAllRanges() cleanup
+            // after a successful save, not a real user selection change --
+            // ignore it once so the "Saved to ..." confirmation stays on
+            // screen for its full duration instead of being hidden instantly.
+            suppressNextSelectionChange = false;
+            return;
+        }
+        const textLayer = document.getElementById('textLayer');
+        const highlightBar = document.getElementById('highlightBar');
+        if (!textLayer || !highlightBar) return;
+
+        activeSelection = getSelectionRange(textLayer);
+
+        // A new (real) selection supersedes any pending "hide after save"
+        // timer from a previous save -- otherwise that timer could fire
+        // later and hide this new selection's preview out from under the
+        // user.
+        clearTimeout(hideHighlightBarTimeout);
+        hideHighlightBarTimeout = null;
+
+        if (activeSelection) {
+            document.getElementById('highlightPreview').textContent = activeSelection.quote;
+            highlightBar.classList.remove('error');
+            highlightBar.style.display = 'flex';
+        } else {
+            highlightBar.style.display = 'none';
+        }
+    });
 });
 
 async function loadBook(bookId) {
@@ -231,6 +273,11 @@ function displayPage(pageNum, direction = null) {
     }
 
     currentPage = pageNum;
+    activeSelection = null;
+    clearTimeout(hideHighlightBarTimeout);
+    hideHighlightBarTimeout = null;
+    const highlightBar = document.getElementById('highlightBar');
+    if (highlightBar) highlightBar.style.display = 'none';
     saveReadingPosition(bookData.id, pageNum);
 
     if (renderMode === 'native-pdf') {
@@ -311,6 +358,7 @@ async function displayPdfPage(pageNum, direction = null) {
             textLayer.style.transformOrigin = '';
 
             const textContent = await page.getTextContent();
+            currentPageTextContent = textContent;
 
             // PDF.js 3.x API - render at the same scale as canvas
             const textLayerRender = pdfjsLib.renderTextLayer({
@@ -566,6 +614,12 @@ function handleKeyboard(e) {
         return;
     }
 
+    if ((e.key === 'h' || e.key === 'H') && activeSelection) {
+        saveHighlight();
+        e.preventDefault();
+        return;
+    }
+
     const pageDisplay = document.getElementById('pageDisplay');
     const panAmount = 100;
 
@@ -647,3 +701,118 @@ document.addEventListener('keyup', (e) => {
         pageDisplay.classList.remove('pan-mode');
     }
 });
+
+function getPageFullText() {
+    if (!currentPageTextContent) return '';
+    return currentPageTextContent.items
+        .map(item => item.str + (item.hasEOL ? ' ' : ''))
+        .join('');
+}
+
+function buildSpanOffsets(textLayer) {
+    // Direct children only, matching findSpanForNode() below (which climbs
+    // to a direct child of textLayer) by construction rather than by
+    // coincidence. querySelectorAll('span') would also pick up any nested
+    // spans; PDF.js's text layer is flat today (span/br siblings only) so
+    // the two happen to agree, but this makes that an invariant instead of
+    // an assumption.
+    const spans = Array.from(textLayer.children).filter(el => el.tagName === 'SPAN');
+    const offsets = new Map();
+    let offset = 0;
+    let spanIndex = 0;
+    for (const item of currentPageTextContent.items) {
+        if (item.str !== '' && spanIndex < spans.length) {
+            offsets.set(spans[spanIndex], offset);
+            spanIndex++;
+        }
+        offset += item.str.length + (item.hasEOL ? 1 : 0);
+    }
+    return offsets;
+}
+
+function findSpanForNode(node, textLayer) {
+    let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    while (el && el.parentElement !== textLayer) {
+        el = el.parentElement;
+    }
+    return el;
+}
+
+function getSelectionRange(textLayer) {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0);
+    if (!textLayer.contains(range.commonAncestorContainer)) return null;
+
+    const startSpan = findSpanForNode(range.startContainer, textLayer);
+    const endSpan = findSpanForNode(range.endContainer, textLayer);
+    if (!startSpan || !endSpan) return null;
+
+    const spanOffsets = buildSpanOffsets(textLayer);
+    const startSpanOffset = spanOffsets.get(startSpan);
+    const endSpanOffset = spanOffsets.get(endSpan);
+    if (startSpanOffset === undefined || endSpanOffset === undefined) return null;
+
+    let rangeStart = startSpanOffset + range.startOffset;
+    let rangeEnd = endSpanOffset + range.endOffset;
+
+    if (rangeEnd < rangeStart) {
+        [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+    }
+
+    const quote = selection.toString().replace(/\s+/g, ' ').trim();
+    if (!quote || rangeEnd <= rangeStart) return null;
+
+    return { quote, rangeStart, rangeEnd };
+}
+
+async function saveHighlight() {
+    if (!activeSelection || !bookData) return;
+
+    const highlightBar = document.getElementById('highlightBar');
+    const preview = document.getElementById('highlightPreview');
+
+    try {
+        const response = await fetch(`/api/books/${bookData.id}/highlights`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                page: currentPage + 1,
+                quote: activeSelection.quote,
+                rangeStart: activeSelection.rangeStart,
+                rangeEnd: activeSelection.rangeEnd
+            })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            preview.textContent = `Saved to ${data.path}`;
+            highlightBar.classList.remove('error');
+            // removeAllRanges() fires 'selectionchange'; suppress that one
+            // event so it doesn't immediately hide the confirmation we just
+            // showed (see suppressNextSelectionChange's declaration above).
+            suppressNextSelectionChange = true;
+            window.getSelection().removeAllRanges();
+            // Safety net: if 'selectionchange' never fires for some reason,
+            // don't leave the flag set and accidentally swallow the next
+            // real selection the user makes.
+            setTimeout(() => { suppressNextSelectionChange = false; }, 100);
+            activeSelection = null;
+            // Cancel any still-pending hide from a previous save so it can't
+            // fire after this one and hide a confirmation/preview it no
+            // longer applies to (e.g. saving twice within 3s).
+            clearTimeout(hideHighlightBarTimeout);
+            hideHighlightBarTimeout = setTimeout(() => {
+                highlightBar.style.display = 'none';
+                hideHighlightBarTimeout = null;
+            }, 3000);
+        } else {
+            preview.textContent = data.error || 'Failed to save highlight';
+            highlightBar.classList.add('error');
+        }
+    } catch (error) {
+        preview.textContent = 'Failed to save highlight';
+        highlightBar.classList.add('error');
+    }
+}
